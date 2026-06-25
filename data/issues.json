@@ -1,0 +1,78 @@
+[
+  {
+    "id": "seed_1",
+    "photoUrl": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20600%20400%22%3E%0A%20%20%3Crect%20width%3D%22600%22%20height%3D%22400%22%20fill%3D%22%231e293b%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%22300%22%20cy%3D%22270%22%20rx%3D%22220%22%20ry%3D%2280%22%20fill%3D%22%230369a1%22%20opacity%3D%220.4%22%20stroke%3D%22%230ea5e9%22%20stroke-width%3D%222%22%20%2F%3E%0A%20%20%3Cellipse%20cx%3D%22280%22%20cy%3D%22280%22%20rx%3D%22150%22%20ry%3D%2250%22%20fill%3D%22%230284c7%22%20opacity%3D%220.5%22%20stroke%3D%22%2338bdf8%22%20stroke-width%3D%221.5%22%20%2F%3E%0A%20%20%3Cellipse%20cx%3D%22320%22%20cy%3D%22260%22%20rx%3D%2280%22%20ry%3D%2230%22%20fill%3D%22%2338bdf8%22%20opacity%3D%220.3%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22250%22%20y%3D%22220%22%20width%3D%22100%22%20height%3D%2250%22%20rx%3D%2210%22%20fill%3D%22%23475569%22%20stroke%3D%22%2394a3b8%22%20stroke-width%3D%224%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20300%20230%20C%20270%20120%2C%20240%2070%2C%20180%20120%22%20fill%3D%22none%22%20stroke%3D%22%237dd3fc%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20300%20230%20C%20330%20110%2C%20360%2060%2C%20420%20100%22%20fill%3D%22none%22%20stroke%3D%22%23e0f2fe%22%20stroke-width%3D%226%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.85%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20300%20230%20Q%20300%2050%20310%2040%22%20fill%3D%22none%22%20stroke%3D%22%23bae6fd%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.95%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22160%22%20cy%3D%22130%22%20r%3D%224%22%20fill%3D%22%23bae6fd%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22430%22%20cy%3D%22115%22%20r%3D%225%22%20fill%3D%22%23e0f2fe%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22312%22%20cy%3D%2230%22%20r%3D%223%22%20fill%3D%22%23ffffff%22%20%2F%3E%0A%20%20%3Crect%20x%3D%220%22%20y%3D%22330%22%20width%3D%22600%22%20height%3D%2270%22%20fill%3D%22%230f172a%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Ctext%20x%3D%2220%22%20y%3D%22370%22%20fill%3D%22%2338bdf8%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20font-weight%3D%22bold%22%3ET.%20NAGAR%2C%20CHENNAI%3C%2Ftext%3E%0A%20%20%3Ctext%20x%3D%22580%22%20y%3D%22370%22%20fill%3D%22%23ef4444%22%20font-family%3D%22sans-serif%22%20font-size%3D%2216%22%20font-weight%3D%22bold%22%20text-anchor%3D%22end%22%3EJAL%20BOARD%20REPORT%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+    "category": "water_leak",
+    "severity": "high",
+    "description": "Water leakage in Chennai street: A major water pipe burst near GN Chetty Road, T. Nagar. Drinking water is bubbling up through the road pavement, creating a deep pool and threatening nearby residential basements.",
+    "location": {
+      "address": "GN Chetty Road, T. Nagar, Chennai, Tamil Nadu 600017",
+      "lat": 13.0418,
+      "lng": 80.2337
+    },
+    "status": "In Progress",
+    "reporterId: "seed_user_1",
+    "reporterName": "Saroja Srinivasan",
+    "reporterEmail": "saroja.s@bharat-civic.org",
+    "reporterPhoto": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150",
+    "note": "Reporting this early in the morning. Water flow is very strong, the whole street corner is submerged. Routed to Jal Board.",
+    "timestamp": "2026-06-24T11:44:59.164Z"
+  },
+  {
+    "id": "seed_2",
+    "photoUrl": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20600%20400%22%3E%0A%20%20%3Crect%20width%3D%22600%22%20height%3D%22400%22%20fill%3D%22%231e293b%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M%200%20200%20L%20600%20200%22%20stroke%3D%22%23475569%22%20stroke-width%3D%22120%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M%200%20200%20L%20600%20200%22%20stroke%3D%22%23e2e8f0%22%20stroke-width%3D%224%22%20stroke-dasharray%3D%2230%2030%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%22300%22%20cy%3D%22200%22%20rx%3D%2290%22%20ry%3D%2240%22%20fill%3D%22%230f172a%22%20stroke%3D%22%23ef4444%22%20stroke-width%3D%224%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20210%20200%20L%20170%20210%20L%20150%20205%20M%20390%20200%20L%20430%20190%20L%20450%20195%20M%20300%20160%20L%20310%20120%20L%20305%20100%20M%20300%20240%20L%20290%20270%20L%20295%20290%22%20stroke%3D%22%23ef4444%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20%2F%3E%0A%20%20%3Cpolygon%20points%3D%22100%2C80%20130%2C130%2070%2C130%22%20fill%3D%22%23f59e0b%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%222%22%20%2F%3E%0A%20%20%3Ctext%20x%3D%22100%22%20y%3D%22122%22%20fill%3D%22%23000000%22%20font-family%3D%22sans-serif%22%20font-size%3D%2228%22%20font-weight%3D%22extrabold%22%20text-anchor%3D%22middle%22%3E!%3C%2Ftext%3E%0A%20%20%3Crect%20x%3D%220%22%20y%3D%22330%22%20width%3D%22600%22%20height%3D%2270%22%20fill%3D%22%230f172a%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Ctext%20x%3D%2220%22%20y%3D%22370%22%20fill%3D%22%2338bdf8%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20font-weight%3D%22bold%22%3EMUMBAI%20HIGHWAY%20%28NH-48%29%3C%2Ftext%3E%0A%20%20%3Ctext%20x%3D%22580%22%20y%3D%22370%22%20fill%3D%22%23ef4444%22%20font-family%3D%22sans-serif%22%20font-size%3D%2216%22%20font-weight%3D%22bold%22%20text-anchor%3D%22end%22%3EPWD%20REPORT%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+    "category": "pothole",
+    "severity": "high",
+    "description": "Pothole on Mumbai highway: Deep, jagged pothole in the middle of the eastbound lane on Western Express Highway, Malad. Multiple cars and two-wheelers have had to swerve dangerously into the oncoming lane to avoid hitting it.",
+    "location": {
+      "address": "Western Express Highway, Malad East, Mumbai, Maharashtra 400097",
+      "lat": 19.1648,
+      "lng": 72.8493
+    },
+    "status": "Open",
+    "reporterId: "seed_user_2",
+    "reporterName": "Milind Jadav",
+    "reporterEmail": "milind.j@my-neighborhood.net",
+    "reporterPhoto": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150",
+    "note": "Almost blew my tire here. It's about 6 inches deep! Routed to PWD (Public Works Department).",
+    "timestamp": "2026-06-23T14:44:59.164Z"
+  },
+  {
+    "id": "seed_3",
+    "photoUrl": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20600%20400%22%3E%0A%20%20%3Crect%20width%3D%22600%22%20height%3D%22400%22%20fill%3D%22%231e293b%22%2F%3E%0A%20%20%3Crect%20width%3D%22600%22%20height%3D%22180%22%20fill%3D%22%23111827%22%2F%3E%0A%20%20%3Crect%20x%3D%22420%22%20y%3D%2240%22%20width%3D%22130%22%20height%3D%22360%22%20fill%3D%22%231e293b%22%20stroke%3D%22%23334155%22%20stroke-width%3D%222%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22440%22%20y%3D%2270%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.8%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22480%22%20y%3D%2270%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22510%22%20y%3D%2270%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.4%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22440%22%20y%3D%22110%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22480%22%20y%3D%22110%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22510%22%20y%3D%22110%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22440%22%20y%3D%22150%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.7%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22480%22%20y%3D%22150%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22510%22%20y%3D%22150%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.6%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22440%22%20y%3D%22190%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22480%22%20y%3D%22190%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.5%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22510%22%20y%3D%22190%22%20width%3D%2215%22%20height%3D%2220%22%20fill%3D%22%231e293b%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%2050%20360%20C%20120%20220%2C%20280%20200%2C%20360%20360%20Z%22%20fill%3D%22%234b5320%22%20stroke%3D%22%232d3748%22%20stroke-width%3D%223%22%2F%3E%0A%20%20%3Crect%20x%3D%22120%22%20y%3D%22270%22%20width%3D%22130%22%20height%3D%2235%22%20rx%3D%224%22%20fill%3D%22%2364748b%22%20transform%3D%22rotate%28-15%2C%20120%2C%20270%29%22%20stroke%3D%22%231e293b%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Cline%20x1%3D%22125%22%20y1%3D%22270%22%20x2%3D%22235%22%20y2%3D%22240%22%20stroke%3D%22%23475569%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2280%22%20cy%3D%22330%22%20r%3D%2228%22%20fill%3D%22%230f172a%22%20stroke%3D%22%23334155%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%22280%22%20cy%3D%22320%22%20r%3D%2232%22%20fill%3D%22%23020617%22%20stroke%3D%22%231e293b%22%20stroke-width%3D%222%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%22320%22%20cy%3D%22340%22%20r%3D%2222%22%20fill%3D%22%23334155%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%22160%22%20cy%3D%22180%22%20r%3D%222%22%20fill%3D%22%23000%22%20opacity%3D%220.8%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22170%22%20cy%3D%22190%22%20r%3D%221.5%22%20fill%3D%22%23000%22%20opacity%3D%220.8%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22150%22%20cy%3D%22195%22%20r%3D%222%22%20fill%3D%22%23000%22%20opacity%3D%220.8%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20160%20176%20L%20164%20172%20M%20160%20176%20L%20156%20172%22%20stroke%3D%22%2364748b%22%20stroke-width%3D%221%22%2F%3E%0A%20%20%3Crect%20x%3D%220%22%20y%3D%22330%22%20width%3D%22600%22%20height%3D%2270%22%20fill%3D%22%230f172a%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Ctext%20x%3D%2220%22%20y%3D%22370%22%20fill%3D%22%2338bdf8%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20font-weight%3D%22bold%22%3EOUTER%20RING%20ROAD%2C%20BENGALURU%3C%2Ftext%3E%0A%20%20%3Ctext%20x%3D%22580%22%20y%3D%22370%22%20fill%3D%22%23eab308%22%20font-family%3D%22sans-serif%22%20font-size%3D%2216%22%20font-weight%3D%22bold%22%20text-anchor%3D%22end%22%3EMUNICIPAL%20CORP%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+    "category": "garbage",
+    "severity": "medium",
+    "description": "Garbage pile near Bangalore apartment: Illegally dumped garbage, plastic waste, and household waste piled on the sidewalk corner of Outer Ring Road, HSR Layout, near the apartment gate.",
+    "location": {
+      "address": "Outer Ring Road, HSR Layout, Bengaluru, Karnataka 560102",
+      "lat": 12.9279,
+      "lng": 77.6271
+    },
+    "status": "Open",
+    "reporterId: "seed_user_3",
+    "reporterName": "Esha Reddy",
+    "reporterEmail": "esha.r@eco-action.org",
+    "reporterPhoto": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=150",
+    "note": "This pile has been growing since Tuesday. Pests are starting to gather. Routed to Municipal Corporation.",
+    "timestamp": "2026-06-22T14:44:59.164Z"
+  },
+  {
+    "id": "seed_4",
+    "photoUrl": "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20600%20400%22%3E%0A%20%20%3Crect%20width%3D%22600%22%20height%3D%22400%22%20fill%3D%22%23090d16%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2280%22%20cy%3D%2270%22%20r%3D%221.5%22%20fill%3D%22%23ffffff%22%20opacity%3D%220.8%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22180%22%20cy%3D%22110%22%20r%3D%221.5%22%20fill%3D%22%23ffffff%22%20opacity%3D%220.5%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22450%22%20cy%3D%2280%22%20r%3D%221.5%22%20fill%3D%22%23ffffff%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22520%22%20cy%3D%22140%22%20r%3D%222%22%20fill%3D%22%23ffffff%22%20opacity%3D%220.7%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20400%20400%20L%20400%20120%20Q%20400%2080%20360%2080%22%20fill%3D%22none%22%20stroke%3D%22%23334155%22%20stroke-width%3D%2212%22%20stroke-linecap%3D%22round%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22310%22%20y%3D%2272%22%20width%3D%2260%22%20height%3D%2218%22%20rx%3D%225%22%20fill%3D%22%23475569%22%20transform%3D%22rotate%28-15%2C%20340%2C%2081%29%22%20%2F%3E%0A%20%20%3Cellipse%20cx%3D%22325%22%20cy%3D%2292%22%20rx%3D%2214%22%20ry%3D%2210%22%20fill%3D%22%231e293b%22%20stroke%3D%22%23ef4444%22%20stroke-width%3D%222%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20325%20102%20L%20320%20115%20L%20328%20122%22%20fill%3D%22none%22%20stroke%3D%22%23f59e0b%22%20stroke-width%3D%222%22%20opacity%3D%220.3%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20315%2085%20L%20335%2099%20M%20335%2085%20L%20315%2099%22%20stroke%3D%22%23ef4444%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20%2F%3E%0A%20%20%3Cpath%20d%3D%22M%200%20400%20L%200%20280%20L%2080%20230%20L%20160%20280%20L%20160%20400%20Z%22%20fill%3D%22%230f172a%22%2F%3E%0A%20%20%3Cpath%20d%3D%22M%20160%20400%20L%20160%20310%20L%20210%20270%20L%20260%20310%20L%20260%20400%20Z%22%20fill%3D%22%23111827%22%2F%3E%0A%20%20%3Crect%20x%3D%2250%22%20y%3D%22300%22%20width%3D%2225%22%20height%3D%2235%22%20rx%3D%222%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.75%22%20%2F%3E%0A%20%20%3Crect%20x%3D%22195%22%20y%3D%22330%22%20width%3D%2220%22%20height%3D%2225%22%20rx%3D%222%22%20fill%3D%22%23f59e0b%22%20opacity%3D%220.5%22%20%2F%3E%0A%20%20%3Crect%20x%3D%220%22%20y%3D%22330%22%20width%3D%22600%22%20height%3D%2270%22%20fill%3D%22%230f172a%22%20opacity%3D%220.9%22%20%2F%3E%0A%20%20%3Ctext%20x%3D%2220%22%20y%3D%22370%22%20fill%3D%22%2338bdf8%22%20font-family%3D%22sans-serif%22%20font-size%3D%2218%22%20font-weight%3D%22bold%22%3ELAJPAT%20NAGAR%2C%20NEW%20DELHI%3C%2Ftext%3E%0A%20%20%3Ctext%20x%3D%22580%22%20y%3D%22370%22%20fill%3D%22%23eab308%22%20font-family%3D%22sans-serif%22%20font-size%3D%2216%22%20font-weight%3D%22bold%22%20text-anchor%3D%22end%22%3EBESCOM%20REPORT%3C%2Ftext%3E%0A%3C%2Fsvg%3E",
+    "category": "streetlight",
+    "severity": "low",
+    "description": "Broken streetlight in Delhi colony: The street lamp outside Lajpat Nagar III has completely gone dark, leaving the pedestrian crosswalk unlit and unsafe.",
+    "location": {
+      "address": "Lajpat Nagar III, New Delhi, Delhi 110024",
+      "lat": 28.5672,
+      "lng": 77.2433
+    },
+    "status": "Resolved",
+    "reporterId: "seed_user_2",
+    "reporterName": "Milind Jadav",
+    "reporterEmail": "milind.j@my-neighborhood.net",
+    "reporterPhoto": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150",
+    "note": "Pitch black at night now, makes returning from the metro station quite uncomfortable. Fixed by BESCOM.",
+    "timestamp": "2026-06-20T14:44:59.164Z"
+  }
+]

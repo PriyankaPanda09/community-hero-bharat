@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "CivicIssue": {
+      "title": "CivicIssue",
+      "description": "A community reported civic issue such as a pothole, streetlight failure, garbage, or water leak.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique document ID of the issue."
+        },
+        "photoUrl": {
+          "type": "string",
+          "description": "URL of the uploaded/analyzed image of the issue."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["pothole", "streetlight", "garbage", "water_leak", "other"],
+          "description": "Categorized issue type."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "description": "Severity level of the civic issue."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the problem, usually analyzed by Visual AI."
+        },
+        "location": {
+          "type": "object",
+          "description": "Address and geographic coordinates of the issue.",
+          "properties": {
+            "address": { "type": "string" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          },
+          "required": ["address"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Open", "In Progress", "Resolved"],
+          "description": "Current resolution status."
+        },
+        "reporterId": {
+          "type": "string",
+          "description": "UID of the user who reported this issue."
+        },
+        "reporterName": {
+          "type": "string",
+          "description": "Display name of the reporter."
+        },
+        "reporterEmail": {
+          "type": "string",
+          "description": "Email address of the reporter."
+        },
+        "reporterPhoto": {
+          "type": "string",
+          "description": "Avatar photo URL of the reporter."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional custom note added by the user."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the report was submitted."
+        }
+      },
+      "required": [
+        "photoUrl",
+        "category",
+        "severity",
+        "description",
+        "location",
+        "status",
+        "reporterId",
+        "reporterName",
+        "reporterEmail",
+        "timestamp"
+      ]
+    }
+  },
+  "firestore": {
+    "issues/{issueId}": {
+      "schema": "CivicIssue",
+      "description": "Saves all community-reported civic issues in the city."
+    }
+  }
+}

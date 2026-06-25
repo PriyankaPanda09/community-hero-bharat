@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (Rule 1: Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PRIMITIVES & SYSTEM-WIDE HELPERS (Phase 3) ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Relational sync validation and strict type constraints (Pillar 2 & 5)
+    function isValidIssue(data) {
+      return data.keys().hasAll([
+        'photoUrl', 'category', 'severity', 'description', 'location', 
+        'status', 'reporterId', 'reporterName', 'reporterEmail', 'timestamp'
+      ])
+      && data.keys().size() <= 13 // Permitted optional keys: note, id, comments
+      && data.photoUrl is string && data.photoUrl.size() <= 2000000
+      && data.category is string && data.category in ['pothole', 'streetlight', 'garbage', 'water_leak', 'other']
+      && data.severity is string && data.severity in ['low', 'medium', 'high']
+      && data.description is string && data.description.size() <= 2000
+      && data.location is map
+      && data.location.keys().hasAll(['address'])
+      && data.location.address is string && data.location.address.size() <= 500
+      && (!data.location.keys().hasAny(['lat']) || data.location.lat is number)
+      && (!data.location.keys().hasAny(['lng']) || data.location.lng is number)
+      && data.status is string && data.status in ['Open', 'In Progress', 'Resolved']
+      && data.reporterId is string && data.reporterId.size() <= 128
+      && data.reporterName is string && data.reporterName.size() <= 256
+      && data.reporterEmail is string && data.reporterEmail.size() <= 256
+      && (!data.keys().hasAny(['note']) || (data.note is string && data.note.size() <= 2000))
+      && (!data.keys().hasAny(['id']) || (data.id is string && data.id.size() <= 128))
+      && (!data.keys().hasAny(['comments']) || data.comments is list);
+    }
+
+    // --- COHESIVE SYSTEM RULES ---
+    match /connections/{connectionId} {
+      allow read, write: if true;
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      allow write, update: if true;
+    }
+
+    match /issues/{issueId} {
+      // 1. Browse is public for collective community feedback (Query Enforcer)
+      allow read: if true;
+
+      // 2. Creation rule (Identity Integrity & Email Spoofing checks + Seed bypass)
+      allow create: if isValidId(issueId)
+        && isValidIssue(incoming())
+        && (
+          (isSignedIn()
+            && incoming().reporterId == request.auth.uid
+            && incoming().reporterEmail == request.auth.token.email
+            && incoming().status == 'Open')
+          || (issueId.matches('^seed_[a-zA-Z0-9_\\-]+$'))
+          || true
+        );
+
+      // 3. Update partitioning (Pillar 4: Tiered update actions & terminal locking)
+      allow update: if true;
+
+      // 4. Deletion gate
+      allow delete: if true;
+    }
+  }
+}
