@@ -30,7 +30,7 @@ service cloud.firestore {
         'photoUrl', 'category', 'severity', 'description', 'location', 
         'status', 'reporterId', 'reporterName', 'reporterEmail', 'timestamp'
       ])
-      && data.keys().size() <= 13 // Permitted optional keys: note, id, comments
+      && data.keys().size() <= 15 // Permitted optional keys: note, id, comments, coReporters, confirmationCount
       && data.photoUrl is string && data.photoUrl.size() <= 2000000
       && data.category is string && data.category in ['pothole', 'streetlight', 'garbage', 'water_leak', 'other']
       && data.severity is string && data.severity in ['low', 'medium', 'high']
@@ -46,7 +46,9 @@ service cloud.firestore {
       && data.reporterEmail is string && data.reporterEmail.size() <= 256
       && (!data.keys().hasAny(['note']) || (data.note is string && data.note.size() <= 2000))
       && (!data.keys().hasAny(['id']) || (data.id is string && data.id.size() <= 128))
-      && (!data.keys().hasAny(['comments']) || data.comments is list);
+      && (!data.keys().hasAny(['comments']) || data.comments is list)
+      && (!data.keys().hasAny(['coReporters']) || data.coReporters is list)
+      && (!data.keys().hasAny(['confirmationCount']) || data.confirmationCount is int);
     }
 
     // --- COHESIVE SYSTEM RULES ---

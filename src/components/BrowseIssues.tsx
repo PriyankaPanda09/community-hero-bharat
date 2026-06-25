@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CivicIssue, IssueCategory, IssueStatus, IssueSeverity, CivicUser } from "../types";
-import { MapPin, Calendar, User, Search, Filter, AlertTriangle, CheckCircle2, ShieldAlert, ChevronRight, Check, Trash2, Building2, Building, Phone, Mail, BadgeCheck, Camera, Upload } from "lucide-react";
+import { MapPin, Calendar, User, Users, Search, Filter, AlertTriangle, CheckCircle2, ShieldAlert, ChevronRight, Check, Trash2, Building2, Building, Phone, Mail, BadgeCheck, Camera, Upload } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useFirebase } from "../FirebaseContext";
 import { doc, deleteDoc, updateDoc } from "firebase/firestore";
@@ -11,6 +11,8 @@ interface BrowseIssuesProps {
   currentUser: CivicUser | null;
   onUpdateStatus: (id: string, newStatus: IssueStatus) => void;
   onDeleteIssue?: (id: string) => void;
+  highlightedIssueId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 const CATEGORY_ICONS: Record<IssueCategory, string> = {
@@ -81,6 +83,8 @@ export default function BrowseIssues({
   currentUser,
   onUpdateStatus,
   onDeleteIssue,
+  highlightedIssueId,
+  onClearHighlight,
 }: BrowseIssuesProps) {
   const { activeDatabase, setIssues } = useFirebase();
   const [searchTerm, setSearchTerm] = useState("");
@@ -89,6 +93,34 @@ export default function BrowseIssues({
   const [selectedSeverity, setSelectedSeverity] = useState<"all" | IssueSeverity>("all");
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [expandedAuthorityId, setExpandedAuthorityId] = useState<string | null>(null);
+
+  // Auto-scrolling and highlighting effect
+  React.useEffect(() => {
+    if (highlightedIssueId) {
+      const targetIssue = issues.find((i) => i.id === highlightedIssueId);
+      if (targetIssue) {
+        setSearchTerm("");
+        setSelectedCategory("all");
+        setSelectedStatus("all");
+        setSelectedSeverity("all");
+        setExpandedAuthorityId(highlightedIssueId);
+
+        const timer = setTimeout(() => {
+          const element = document.getElementById(`issue-card-${highlightedIssueId}`);
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+            element.classList.add("ring-4", "ring-accent-teal", "ring-offset-2");
+            setTimeout(() => {
+              element.classList.remove("ring-4", "ring-accent-teal", "ring-offset-2");
+            }, 3000);
+          }
+          onClearHighlight?.();
+        }, 200);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [highlightedIssueId, issues, onClearHighlight]);
 
   // Filters logic
   const filteredIssues = issues.filter((issue) => {
@@ -399,6 +431,7 @@ export default function BrowseIssues({
 
               return (
                 <motion.article
+                  id={`issue-card-${issue.id}`}
                   key={issue.id}
                   layout
                   initial={{ opacity: 0, y: 30 }}
@@ -695,6 +728,14 @@ export default function BrowseIssues({
                           </p>
                         </div>
                       </div>
+
+                      {/* Co-reporters display */}
+                      {issue.confirmationCount && issue.confirmationCount > 0 ? (
+                        <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-xl text-[10px] text-amber-500 font-extrabold shadow-2xs">
+                          <Users className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>+{issue.confirmationCount} Co-reporter{issue.confirmationCount > 1 ? 's' : ''}</span>
+                        </div>
+                      ) : null}
 
                       {/* GPS coords indicator */}
                       {issue.location.lat && issue.location.lng && (

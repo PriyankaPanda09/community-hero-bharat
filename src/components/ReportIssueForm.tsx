@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { CivicUser, IssueCategory, IssueSeverity, LocationData, AnalysisResult } from "../types";
+import { CivicUser, CivicIssue, IssueCategory, IssueSeverity, LocationData, AnalysisResult } from "../types";
 import { Upload, Camera, AlertCircle, CheckCircle2, MapPin, Sparkles, Send, Edit3, RefreshCw, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useFirebase } from "../FirebaseContext";
@@ -137,7 +137,7 @@ interface ReportIssueFormProps {
 }
 
 export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLoginModal }: ReportIssueFormProps) {
-  const { createIssue } = useFirebase();
+  const { createIssue, addCoReporter, issues } = useFirebase();
   
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoMimeType, setPhotoMimeType] = useState<string>("image/png");
@@ -153,6 +153,82 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
   const [lng, setLng] = useState<string>("");
   const [note, setNote] = useState("");
   const [isApproximate, setIsApproximate] = useState(false);
+
+  // Duplicate state
+  const [duplicateMatch, setDuplicateMatch] = useState<{
+    issue: CivicIssue;
+    evaluation: { is_duplicate: boolean; confidence: "low" | "medium" | "high"; reasoning: string };
+  } | null>(null);
+
+  // Duplicate detection helper using Haversine formula and Gemini API endpoint
+  const checkDuplicate = async (
+    newCategory: string,
+    newDesc: string,
+    newLat: number,
+    newLng: number
+  ): Promise<{ duplicateIssue: CivicIssue; evaluation: { is_duplicate: boolean; confidence: "low" | "medium" | "high"; reasoning: string } } | null> => {
+    // Haversine distance in meters
+    const getDistanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const R = 6371e3; // Earth's radius in meters
+      const φ1 = (lat1 * Math.PI) / 180;
+      const φ2 = (lat2 * Math.PI) / 180;
+      const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+      const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+      return R * c;
+    };
+
+    // Find closest candidate with same category and within 300 meters
+    const candidateIssues = issues
+      .filter(issue => issue.category === newCategory && issue.status !== "Resolved")
+      .map(issue => {
+        const dist = getDistanceInMeters(
+          newLat,
+          newLng,
+          issue.location.lat || 0,
+          issue.location.lng || 0
+        );
+        return { issue, distance: dist };
+      })
+      .filter(item => item.distance <= 300)
+      .sort((a, b) => a.distance - b.distance);
+
+    if (candidateIssues.length === 0) {
+      return null;
+    }
+
+    const closestCandidate = candidateIssues[0].issue;
+
+    try {
+      const res = await fetch("/api/check-duplicate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: newCategory,
+          newDescription: newDesc,
+          existingDescription: closestCandidate.description
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Duplicate check endpoint returned error.");
+      }
+
+      const evaluation = await res.json();
+      return {
+        duplicateIssue: closestCandidate,
+        evaluation
+      };
+    } catch (err) {
+      console.error("Duplicate check call failed:", err);
+      return null;
+    }
+  };
 
   // AI states
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -481,8 +557,8 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
     );
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent, forceSubmit: boolean = false) => {
+    if (e) e.preventDefault();
     if (!currentUser) {
       openLoginModal();
       return;
@@ -500,10 +576,34 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
 
     setIsSubmitting(true);
     setErrorMsg(null);
+    setDuplicateMatch(null);
     
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     try {
+      const parsedLat = parseFloat(lat) || 12.9716;
+      const parsedLng = parseFloat(lng) || 77.5946;
+
+      // Duplicate detection gate
+      if (!forceSubmit) {
+        setUploadProgress(15);
+        await delay(300);
+        const dupResult = await checkDuplicate(category, description, parsedLat, parsedLng);
+        if (
+          dupResult &&
+          dupResult.evaluation.is_duplicate &&
+          (dupResult.evaluation.confidence === "medium" || dupResult.evaluation.confidence === "high")
+        ) {
+          setDuplicateMatch({
+            issue: dupResult.duplicateIssue,
+            evaluation: dupResult.evaluation
+          });
+          setIsSubmitting(false);
+          setUploadProgress(null);
+          return; // STOP normal submission to show comparison UI
+        }
+      }
+
       // Step 1: Photo compressed (20%)
       setUploadProgress(20);
       await delay(500);
@@ -520,8 +620,8 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
         description,
         location: {
           address,
-          lat: parseFloat(lat) || 40.7128,
-          lng: parseFloat(lng) || -74.0060,
+          lat: parsedLat,
+          lng: parsedLng,
         },
         status: "Open",
         reporterId: currentUser.uid,
@@ -558,6 +658,41 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
     }
   };
 
+  const handleConfirmSameIssue = async () => {
+    if (!duplicateMatch || !currentUser) return;
+    setIsSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await addCoReporter(duplicateMatch.issue.id, {
+        uid: currentUser.uid,
+        displayName: currentUser.displayName,
+        email: currentUser.email,
+        photoURL: currentUser.photoURL || ""
+      });
+
+      setSuccess(true);
+      setDuplicateMatch(null);
+      setPhotoPreview(null);
+      setPhotoBase64(null);
+      setDescription("");
+      setAddress("");
+      setLat("");
+      setLng("");
+      setNote("");
+      setAiAnalyzed(false);
+
+      setTimeout(() => {
+        setSuccess(false);
+        onSuccessSubmit();
+      }, 1500);
+    } catch (err: any) {
+      console.error("Co-reporter confirmation failed:", err);
+      setErrorMsg(err.message || "Failed to register duplicate confirmation. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto py-2 px-1 text-text-primary" id="report-issue-container">
       {/* Success banner overlay */}
@@ -579,7 +714,150 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
         )}
       </AnimatePresence>
 
-      <div className="bg-bg-card border border-border-card rounded-3xl p-6 sm:p-8 card-shadow-glow">
+      {duplicateMatch ? (
+        <div className="bg-bg-card border border-border-card rounded-3xl p-6 sm:p-8 card-shadow-glow" id="duplicate-warning-view">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center font-bold">
+              <AlertTriangle className="w-5.5 h-5.5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-display font-extrabold text-text-primary tracking-tight">This looks similar to an existing report</h2>
+              <p className="text-xs text-text-secondary mt-0.5">We found a potential duplicate of your report reported nearby.</p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {/* AI Duplicate Evaluation Callout */}
+            <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-amber-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+                  AI Duplicate Evaluation
+                </span>
+                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full tracking-wider ${
+                  duplicateMatch.evaluation.confidence === "high"
+                    ? "bg-rose-500/15 text-rose-500 border border-rose-500/10"
+                    : "bg-amber-500/15 text-amber-500 border border-amber-500/10"
+                }`}>
+                  {duplicateMatch.evaluation.confidence} Confidence
+                </span>
+              </div>
+              <p className="text-xs text-text-secondary leading-relaxed font-semibold italic">
+                "{duplicateMatch.evaluation.reasoning}"
+              </p>
+            </div>
+
+            {/* Comparison Side-by-Side Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Existing issue card */}
+              <div className="bg-bg-card/50 border border-border-card rounded-2xl p-4 flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-text-muted tracking-wider block mb-2">Similar Existing Report</span>
+                  <div className="h-40 rounded-xl overflow-hidden border border-border-card mb-3 relative bg-bg-card/40">
+                    {duplicateMatch.issue.photoUrl ? (
+                      <img
+                        src={duplicateMatch.issue.photoUrl}
+                        alt="Existing Report"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">No image</div>
+                    )}
+                    <div className="absolute top-2 right-2 bg-accent-teal/90 text-white font-extrabold text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                      {duplicateMatch.issue.status}
+                    </div>
+                  </div>
+                  <h4 className="text-xs font-bold text-text-primary capitalize mb-1">
+                    Category: {duplicateMatch.issue.category.replace("_", " ")}
+                  </h4>
+                  <p className="text-xs text-text-secondary line-clamp-3 mb-2 font-semibold">
+                    "{duplicateMatch.issue.description}"
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-border-card/30 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-slate-500/10 flex items-center justify-center font-bold text-[10px] text-text-secondary">
+                    {duplicateMatch.issue.reporterName.charAt(0)}
+                  </div>
+                  <span className="text-[10px] text-text-muted font-bold truncate">
+                    By {duplicateMatch.issue.reporterName}
+                  </span>
+                </div>
+              </div>
+
+              {/* New Draft issue card */}
+              <div className="bg-bg-card/50 border border-border-card rounded-2xl p-4 flex flex-col justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-accent-teal tracking-wider block mb-2">Your New Draft</span>
+                  <div className="h-40 rounded-xl overflow-hidden border border-border-card mb-3 relative bg-bg-card/40">
+                    {photoPreview ? (
+                      <img
+                        src={photoPreview}
+                        alt="Your draft"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-text-muted text-xs">No image</div>
+                    )}
+                  </div>
+                  <h4 className="text-xs font-bold text-text-primary capitalize mb-1">
+                    Category: {category.replace("_", " ")}
+                  </h4>
+                  <p className="text-xs text-text-secondary line-clamp-3 mb-2 font-semibold">
+                    "{description}"
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-border-card/30 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-accent-teal/10 flex items-center justify-center font-bold text-[10px] text-accent-teal">
+                    {currentUser?.displayName?.charAt(0) || "U"}
+                  </div>
+                  <span className="text-[10px] text-accent-teal font-bold truncate">
+                    By You
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions Block */}
+            <div className="pt-4 border-t border-border-card/30 space-y-3">
+              {errorMsg && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500 font-semibold">
+                  {errorMsg}
+                </div>
+              )}
+              
+              <button
+                type="button"
+                onClick={handleConfirmSameIssue}
+                disabled={isSubmitting}
+                className="w-full bg-accent-teal hover:bg-accent-teal-hover text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-98 cursor-pointer disabled:opacity-50"
+                id="confirm-duplicate-button"
+              >
+                {isSubmitting ? (
+                  <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>Confirm it's the same issue</span>
+              </button>
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={(e) => handleSubmit(e, true)}
+                  disabled={isSubmitting}
+                  className="text-xs text-text-secondary hover:text-accent-teal underline transition-colors cursor-pointer font-bold disabled:opacity-50"
+                  id="bypass-duplicate-button"
+                >
+                  No, this is different. Submit anyway.
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-bg-card border border-border-card rounded-3xl p-6 sm:p-8 card-shadow-glow">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-accent-teal/10 text-accent-teal border border-accent-teal/20 flex items-center justify-center font-bold">
             <Camera className="w-5.5 h-5.5" />
@@ -941,6 +1219,7 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
           </div>
         </form>
       </div>
+      )}
     </div>
   );
 }

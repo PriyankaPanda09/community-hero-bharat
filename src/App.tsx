@@ -4,7 +4,8 @@ import Navbar from "./components/Navbar";
 import BrowseIssues from "./components/BrowseIssues";
 import ReportIssueForm from "./components/ReportIssueForm";
 import Dashboard from "./components/Dashboard";
-import { Heart, Shield, Landmark, Map, PlusCircle, BarChart3, ChevronRight, LogIn, AlertCircle, Sparkles, WifiOff } from "lucide-react";
+import MapView from "./components/MapView";
+import { Heart, Shield, Landmark, Map, List, PlusCircle, BarChart3, ChevronRight, LogIn, AlertCircle, Sparkles, WifiOff } from "lucide-react";
 import { useFirebase } from "./FirebaseContext";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -19,7 +20,8 @@ export default function App() {
     loginCustom
   } = useFirebase();
 
-  const [activeTab, setActiveTab] = useState<"browse" | "report" | "dashboard">("browse");
+  const [activeTab, setActiveTab] = useState<"browse" | "report" | "dashboard" | "map">("browse");
+  const [highlightedIssueId, setHighlightedIssueId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Theme state: light, dark, neon
@@ -80,7 +82,7 @@ export default function App() {
 
       {/* Animated Gradient Hero Banner */}
       <AnimatePresence mode="wait">
-        {activeTab === "browse" && (
+        {(activeTab === "browse" || activeTab === "map") && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -163,6 +165,18 @@ export default function App() {
                   currentUser={currentUser}
                   onUpdateStatus={handleUpdateStatus}
                   onDeleteIssue={handleDeleteIssue}
+                  highlightedIssueId={highlightedIssueId}
+                  onClearHighlight={() => setHighlightedIssueId(null)}
+                />
+              )}
+
+              {activeTab === "map" && (
+                <MapView
+                  issues={issues}
+                  onSelectIssue={(issueId) => {
+                    setHighlightedIssueId(issueId);
+                    setActiveTab("browse");
+                  }}
                 />
               )}
 
@@ -211,8 +225,18 @@ export default function App() {
             activeTab === "browse" ? "text-accent-teal font-bold" : "text-text-muted hover:text-text-secondary"
           }`}
         >
-          <Map className="w-5.5 h-5.5" />
+          <List className="w-5.5 h-5.5" />
           <span className="text-[10px] tracking-tight">Browse</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("map")}
+          className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            activeTab === "map" ? "text-accent-teal font-bold" : "text-text-muted hover:text-text-secondary"
+          }`}
+        >
+          <Map className="w-5.5 h-5.5" />
+          <span className="text-[10px] tracking-tight">Map</span>
         </button>
 
         <button

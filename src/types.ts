@@ -30,6 +30,14 @@ export interface CivicIssue {
   note?: string;
   timestamp: string;
   resolvedPhoto?: string;
+  coReporters?: {
+    uid: string;
+    displayName: string;
+    email: string;
+    photoURL?: string;
+    timestamp: string;
+  }[];
+  confirmationCount?: number;
   timeline?: {
     reportedAt?: string;
     inProgressAt?: string;

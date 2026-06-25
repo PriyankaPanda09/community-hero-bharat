@@ -62,6 +62,25 @@
           "type": "string",
           "description": "Optional custom note added by the user."
         },
+        "coReporters": {
+          "type": "array",
+          "description": "List of co-reporters who confirmed this issue.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": { "type": "string" },
+              "displayName": { "type": "string" },
+              "email": { "type": "string" },
+              "photoURL": { "type": "string" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["uid", "displayName", "email", "timestamp"]
+          }
+        },
+        "confirmationCount": {
+          "type": "integer",
+          "description": "Number of times this issue has been confirmed by co-reporters."
+        },
         "timestamp": {
           "type": "string",
           "format": "date-time",

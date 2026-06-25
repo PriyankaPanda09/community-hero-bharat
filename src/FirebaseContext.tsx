@@ -70,6 +70,7 @@ interface FirebaseContextType {
   loginCustom: (name: string, email: string) => Promise<CivicUser>;
   logout: () => Promise<void>;
   createIssue: (issueData: Omit<CivicIssue, "id">) => Promise<void>;
+  addCoReporter: (issueId: string, reporter: { uid: string; displayName: string; email: string; photoURL?: string }) => Promise<void>;
   updateIssueStatus: (issueId: string, status: IssueStatus, extraData?: any) => Promise<void>;
   deleteIssue: (issueId: string) => Promise<void>;
   updateProfilePhoto: (base64Photo: string) => Promise<void>;
@@ -410,6 +411,46 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Add co-reporter to an existing issue in Firestore
+  const addCoReporter = async (
+    issueId: string,
+    reporter: { uid: string; displayName: string; email: string; photoURL?: string }
+  ) => {
+    try {
+      const issueRef = doc(db, "issues", issueId);
+      const existingIssue = issues.find((i) => i.id === issueId);
+
+      const existingCoReporters = existingIssue?.coReporters || [];
+      const isAlreadyCoReporter =
+        existingCoReporters.some((r) => r.uid === reporter.uid) ||
+        existingIssue?.reporterId === reporter.uid;
+
+      if (isAlreadyCoReporter) {
+        throw new Error("You are already a reporter or co-reporter on this issue.");
+      }
+
+      const newCoReporter = {
+        uid: reporter.uid,
+        displayName: reporter.displayName,
+        email: reporter.email,
+        photoURL: reporter.photoURL || "",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedCoReporters = [...existingCoReporters, newCoReporter];
+      const newCount = (existingIssue?.confirmationCount || 0) + 1;
+
+      await updateDoc(issueRef, {
+        coReporters: updatedCoReporters,
+        confirmationCount: newCount,
+      });
+
+      console.log(`Successfully added ${reporter.displayName} as co-reporter to ${issueId}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `issues/${issueId}`);
+    }
+  };
+
   // Update profile photo in real Firestore database
   const updateProfilePhoto = async (base64Photo: string) => {
     if (!currentUser?.uid) {
@@ -458,6 +499,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         loginCustom,
         logout,
         createIssue,
+        addCoReporter,
         updateIssueStatus,
         deleteIssue,
         updateProfilePhoto,

@@ -2,14 +2,14 @@ import React from "react";
 import { CivicUser } from "../types";
 import AuthSim from "./AuthSim";
 import { useFirebase } from "../FirebaseContext";
-import { ShieldAlert, PlusCircle, Map, BarChart3, Sun, Moon, Zap, Bell, CheckCheck, Trash2, MessageSquare } from "lucide-react";
+import { ShieldAlert, PlusCircle, Map, List, BarChart3, Sun, Moon, Zap, Bell, CheckCheck, Trash2, MessageSquare } from "lucide-react";
 
 interface NavbarProps {
   currentUser: CivicUser | null;
   onLogin: (user: CivicUser) => void;
   onLogout: () => void;
-  activeTab: "browse" | "report" | "dashboard";
-  setActiveTab: (tab: "browse" | "report" | "dashboard") => void;
+  activeTab: "browse" | "report" | "dashboard" | "map";
+  setActiveTab: (tab: "browse" | "report" | "dashboard" | "map") => void;
   theme: "light" | "dark" | "neon";
   setTheme: (theme: "light" | "dark" | "neon") => void;
 }
@@ -59,8 +59,20 @@ export default function Navbar({
                 : "text-white/80 hover:text-white hover:bg-white/5 opacity-90"
             }`}
           >
-            <Map className="w-4 h-4 shrink-0" />
+            <List className="w-4 h-4 shrink-0" />
             <span>Browse Feed</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("map")}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer transform hover:scale-102 duration-200 ${
+              activeTab === "map"
+                ? "bg-white/15 text-white border border-white/10 shadow-inner"
+                : "text-white/80 hover:text-white hover:bg-white/5 opacity-90"
+            }`}
+          >
+            <Map className="w-4 h-4 shrink-0" />
+            <span>Map View</span>
           </button>
 
           <button

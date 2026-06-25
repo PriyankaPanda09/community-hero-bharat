@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 
@@ -175,6 +175,116 @@ Do not include any explanation, markdown block formatting, or extra text. Return
         severity: "medium",
         description: "Community report uploaded. Visual inspection pending. The user's uploaded photo indicates a potential civic issue that needs to be assessed by a neighborhood inspector."
       }
+    });
+  }
+});
+
+// 1.2. Check for Duplicates using Gemini API
+app.post("/api/check-duplicate", async (req, res) => {
+  try {
+    const { category, newDescription, existingDescription } = req.body;
+
+    if (!category || !newDescription || !existingDescription) {
+      return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. Bypassing duplicate check.");
+      return res.json({
+        is_duplicate: false,
+        confidence: "low",
+        reasoning: "AI duplicate check is temporarily disabled."
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const prompt = `You are a civic duplicate detection assistant. Your job is to compare a new report of a civic issue against an existing report of a civic issue of the same category at the same location, and determine if they are likely describing the exact same real-world physical event or issue.
+
+Existing issue description:
+"${existingDescription}"
+
+New issue description:
+"${newDescription}"
+
+Category: ${category}
+
+Evaluate if the new report is a duplicate of the existing report. Consider details, severity, specific symptoms, and context mentioned in both descriptions.
+Reply with a JSON object matching this schema:
+{
+  "is_duplicate": boolean,
+  "confidence": "low" | "medium" | "high",
+  "reasoning": "A brief explanation of why this decision was made."
+}`;
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-2.5-flash"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting duplicate check with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                is_duplicate: {
+                  type: Type.BOOLEAN,
+                  description: "True if the reports refer to the exact same physical issue."
+                },
+                confidence: {
+                  type: Type.STRING,
+                  enum: ["low", "medium", "high"],
+                  description: "Confidence in the decision."
+                },
+                reasoning: {
+                  type: Type.STRING,
+                  description: "Reasoning for the decision."
+                }
+              },
+              required: ["is_duplicate", "confidence", "reasoning"]
+            }
+          },
+        });
+        if (response && response.text) {
+          console.log(`Successfully checked duplicate using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed duplicate check with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed the duplicate check.");
+    }
+
+    const responseText = response.text.trim();
+    const parsed = JSON.parse(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in duplicate checking:", error);
+    return res.json({
+      is_duplicate: false,
+      confidence: "low",
+      reasoning: "Duplicate check failed due to server error: " + (error.message || error)
     });
   }
 });
