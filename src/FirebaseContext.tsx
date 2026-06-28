@@ -70,11 +70,23 @@ interface FirebaseContextType {
   loginCustom: (name: string, email: string) => Promise<CivicUser>;
   logout: () => Promise<void>;
   createIssue: (issueData: Omit<CivicIssue, "id">) => Promise<void>;
-  addCoReporter: (issueId: string, reporter: { uid: string; displayName: string; email: string; photoURL?: string }) => Promise<void>;
+  addCoReporter: (
+    issueId: string,
+    reporter: { uid: string; displayName: string; email: string; photoURL?: string },
+    proofPhoto?: string,
+    note?: string
+  ) => Promise<void>;
+  removeConfirmation: (
+    issueId: string,
+    userUid: string
+  ) => Promise<void>;
   updateIssueStatus: (issueId: string, status: IssueStatus, extraData?: any) => Promise<void>;
+  escalateIssue: (issueId: string) => Promise<void>;
   deleteIssue: (issueId: string) => Promise<void>;
   updateProfilePhoto: (base64Photo: string) => Promise<void>;
+  updateUserProfile: (displayName: string) => Promise<void>;
   clearAllIssues: () => Promise<void>;
+  clearDemoIssues: () => Promise<void>;
   activeDatabase: "firestore" | "sheets";
   cachedAccessToken: string | null;
   notifications: InAppNotification[];
@@ -82,6 +94,7 @@ interface FirebaseContextType {
   clearAllNotifications: () => void;
   adminReadIssues: string[];
   markAdminIssuesAsRead: () => void;
+  markAdminIssueAsRead: (id: string) => void;
   setIssues: React.Dispatch<React.SetStateAction<CivicIssue[]>>;
 }
 
@@ -136,6 +149,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const allIssueIds = issues.map((i) => i.id);
     setAdminReadIssues(allIssueIds);
     localStorage.setItem("civic_admin_read_issues", JSON.stringify(allIssueIds));
+  };
+
+  const markAdminIssueAsRead = (id: string) => {
+    setAdminReadIssues((prev) => {
+      if (prev.includes(id)) return prev;
+      const updated = [...prev, id];
+      localStorage.setItem("civic_admin_read_issues", JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const prevIssuesRef = useRef<CivicIssue[]>([]);
@@ -357,6 +379,10 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         address: issueData.location.address,
         lat: Number(issueData.location.lat) || 12.9716,
         lng: Number(issueData.location.lng) || 77.5946,
+        state: issueData.location.state || "",
+        city: issueData.location.city || "",
+        streetAddress: issueData.location.streetAddress || "",
+        zipCode: issueData.location.zipCode || "",
       },
       status: issueData.status || "Open",
       reporterId: currentUser?.uid || issueData.reporterId || "guest",
@@ -378,8 +404,58 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  // Update issue status in real Firestore database
+  // Update issue status in real Firestore database with strict lifecycle and role checks
   const updateIssueStatus = async (issueId: string, status: IssueStatus, extraData: any = {}) => {
+    // 1. Retrieve the issue from local state
+    const currentIssue = issues.find((i) => i.id === issueId);
+    if (!currentIssue) {
+      throw new Error("Grievance report not found.");
+    }
+
+    const currentStatus = currentIssue.status;
+
+    // 2. Enforce strict sequential order: Open -> In Progress -> Resolved -> Verified
+    const STATUS_ORDER: IssueStatus[] = ["Open", "In Progress", "Resolved", "Verified"];
+    const currentIndex = STATUS_ORDER.indexOf(currentStatus);
+    const newIndex = STATUS_ORDER.indexOf(status);
+
+    if (currentIndex === -1 || newIndex === -1) {
+      throw new Error(`Invalid status values detected. Current: ${currentStatus}, Requested: ${status}`);
+    }
+
+    // Only allow moving forward exactly one step. Never skip, never go backward, and never change from terminal state.
+    if (newIndex !== currentIndex + 1) {
+      throw new Error(
+        `Invalid status transition from "${currentStatus}" to "${status}". Status must progress strictly in sequence: Open → In Progress → Resolved → Verified.`
+      );
+    }
+
+    // 3. Enforce strict role validation based on the transition step
+    const isAdmin = currentUser?.email === "priyapanda959@gmail.com";
+
+    if (status === "Verified") {
+      // "only the original reporter (or a confirmed co-reporter) should be able to mark an issue as 'Verified,' and only after it is already in 'Resolved' status."
+      const isReporter = currentUser && (currentUser.uid === currentIssue.reporterId || currentUser.email === currentIssue.reporterEmail);
+      const isCoReporter = currentUser && !!currentIssue.coReporters?.some((c) => c.uid === currentUser.uid || c.email === currentUser.email);
+
+      if (isAdmin) {
+        throw new Error("Administrators are not permitted to set the status to Verified. The final verification must be logged by the reporter or community.");
+      }
+
+      if (!isReporter && !isCoReporter) {
+        throw new Error("Only the original reporter or a confirmed co-reporter of this grievance can mark it as Verified.");
+      }
+
+      if (currentStatus !== "Resolved") {
+        throw new Error("An issue can only be marked as Verified once it has been Resolved.");
+      }
+    } else {
+      // Moving to "In Progress" or "Resolved" must be performed by the admin
+      if (!isAdmin) {
+        throw new Error("Only administrators are permitted to transition reports to In Progress or Resolved.");
+      }
+    }
+
     try {
       const updatePayload: any = { status };
       
@@ -401,6 +477,54 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Escalate an issue as urgent in the database
+  const escalateIssue = async (issueId: string) => {
+    try {
+      const issue = issues.find((i) => i.id === issueId);
+      let complaintLetter = "";
+      if (issue) {
+        try {
+          const res = await fetch("/api/generate-complaint-letter", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              category: issue.category,
+              description: issue.description,
+              address: issue.location.address,
+              timestamp: issue.timestamp,
+              confirmationCount: issue.confirmationCount || (issue.confirmationPhotos?.length || 0),
+              reporterName: issue.reporterName,
+              id: issue.id
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.letter) {
+              complaintLetter = data.letter;
+            }
+          }
+        } catch (err) {
+          console.error("Failed to generate custom complaint letter during escalation:", err);
+        }
+      }
+
+      const updatePayload: any = {
+        isEscalated: true,
+        escalatedAt: new Date().toISOString()
+      };
+      if (complaintLetter) {
+        updatePayload.complaintLetter = complaintLetter;
+      }
+
+      await updateDoc(doc(db, "issues", issueId), updatePayload);
+      console.log("Firestore issue successfully escalated with complaint letter:", issueId);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `issues/${issueId}`);
+    }
+  };
+
   // Delete issue from real Firestore database
   const deleteIssue = async (issueId: string) => {
     try {
@@ -414,7 +538,9 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Add co-reporter to an existing issue in Firestore
   const addCoReporter = async (
     issueId: string,
-    reporter: { uid: string; displayName: string; email: string; photoURL?: string }
+    reporter: { uid: string; displayName: string; email: string; photoURL?: string },
+    proofPhoto?: string,
+    note?: string
   ) => {
     try {
       const issueRef = doc(db, "issues", issueId);
@@ -422,13 +548,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const existingCoReporters = existingIssue?.coReporters || [];
       const isAlreadyCoReporter =
-        existingCoReporters.some((r) => r.uid === reporter.uid) ||
-        existingIssue?.reporterId === reporter.uid;
+        existingCoReporters.some((r) => r.uid === reporter.uid || r.email === reporter.email) ||
+        existingIssue?.reporterId === reporter.uid ||
+        existingIssue?.reporterEmail === reporter.email;
 
       if (isAlreadyCoReporter) {
-        throw new Error("You are already a reporter or co-reporter on this issue.");
+        throw new Error("You have already reported or confirmed this civic issue. A single user can only contribute one confirmation or report per issue.");
       }
 
+      const updatedCoReporters = [...existingCoReporters];
       const newCoReporter = {
         uid: reporter.uid,
         displayName: reporter.displayName,
@@ -436,16 +564,61 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         photoURL: reporter.photoURL || "",
         timestamp: new Date().toISOString(),
       };
+      updatedCoReporters.push(newCoReporter);
 
-      const updatedCoReporters = [...existingCoReporters, newCoReporter];
+      const existingConfirmationPhotos = existingIssue?.confirmationPhotos || [];
+      const updatedConfirmationPhotos = [...existingConfirmationPhotos];
+      if (proofPhoto) {
+        updatedConfirmationPhotos.push({
+          url: proofPhoto,
+          reporterId: reporter.uid,
+          reporterName: reporter.displayName,
+          reporterPhoto: reporter.photoURL || "",
+          note: note || "",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const newCount = (existingIssue?.confirmationCount || 0) + 1;
 
-      await updateDoc(issueRef, {
+      const updatePayload: any = {
         coReporters: updatedCoReporters,
         confirmationCount: newCount,
-      });
+      };
 
+      if (proofPhoto) {
+        updatePayload.confirmationPhotos = updatedConfirmationPhotos;
+      }
+
+      await updateDoc(issueRef, updatePayload);
       console.log(`Successfully added ${reporter.displayName} as co-reporter to ${issueId}`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `issues/${issueId}`);
+    }
+  };
+
+  const removeConfirmation = async (issueId: string, userUid: string) => {
+    try {
+      const issueRef = doc(db, "issues", issueId);
+      const existingIssue = issues.find((i) => i.id === issueId);
+      if (!existingIssue) return;
+
+      const existingCoReporters = existingIssue.coReporters || [];
+      const updatedCoReporters = existingCoReporters.filter((r) => r.uid !== userUid);
+
+      const existingConfirmationPhotos = existingIssue.confirmationPhotos || [];
+      const updatedConfirmationPhotos = existingConfirmationPhotos.filter((p) => p.reporterId !== userUid);
+
+      const newCount = Math.max(0, (existingIssue.confirmationCount || 0) - 1);
+
+      const updatePayload: any = {
+        coReporters: updatedCoReporters,
+        confirmationCount: newCount,
+        confirmationPhotos: updatedConfirmationPhotos,
+      };
+
+      await updateDoc(issueRef, updatePayload);
+      console.log(`Successfully removed confirmation of ${userUid} from ${issueId}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `issues/${issueId}`);
     }
@@ -470,6 +643,94 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Update display name and save to Firestore, updating all relevant user records dynamically
+  const updateUserProfile = async (displayName: string) => {
+    if (!currentUser?.uid) {
+      throw new Error("No authenticated user found.");
+    }
+    const uid = currentUser.uid;
+    const cleanName = displayName.trim();
+    if (!cleanName) {
+      throw new Error("Display name cannot be empty.");
+    }
+
+    try {
+      // 1. Update user profile document in Firestore
+      await setDoc(doc(db, "users", uid), {
+        displayName: cleanName,
+        email: currentUser.email,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      // 2. Local state and localStorage update
+      const updatedUser = {
+        ...currentUser,
+        displayName: cleanName,
+      };
+      setCurrentUser(updatedUser);
+      localStorage.setItem("civic_current_user", JSON.stringify(updatedUser));
+
+      // 3. Update all issues where this user is the reporter, co-reporter, or has co-reporter photos
+      const { writeBatch, getDocs } = await import("firebase/firestore");
+      const querySnapshot = await getDocs(collection(db, "issues"));
+      const batch = writeBatch(db);
+      let count = 0;
+
+      querySnapshot.forEach((issueDoc) => {
+        const data = issueDoc.data();
+        let changed = false;
+        const updatePayload: any = {};
+
+        // If user is primary reporter
+        if (data.reporterId === uid || (data.reporterEmail && data.reporterEmail === currentUser.email)) {
+          updatePayload.reporterName = cleanName;
+          changed = true;
+        }
+
+        // If user is in coReporters list
+        if (data.coReporters && Array.isArray(data.coReporters)) {
+          const updatedCoReporters = data.coReporters.map((co: any) => {
+            if (co.uid === uid || co.email === currentUser.email) {
+              changed = true;
+              return { ...co, displayName: cleanName };
+            }
+            return co;
+          });
+          if (changed) {
+            updatePayload.coReporters = updatedCoReporters;
+          }
+        }
+
+        // If user is in confirmationPhotos list
+        if (data.confirmationPhotos && Array.isArray(data.confirmationPhotos)) {
+          const updatedPhotos = data.confirmationPhotos.map((photo: any) => {
+            if (photo.reporterId === uid) {
+              changed = true;
+              return { ...photo, reporterName: cleanName };
+            }
+            return photo;
+          });
+          if (changed) {
+            updatePayload.confirmationPhotos = updatedPhotos;
+          }
+        }
+
+        if (changed) {
+          batch.update(issueDoc.ref, updatePayload);
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        console.log(`Successfully updated profile name on ${count} issues.`);
+      }
+
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+    }
+  };
+
   // Delete all issues in Firestore (Batch delete)
   const clearAllIssues = async () => {
     try {
@@ -488,6 +749,39 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Delete all demo/seed issues in Firestore (Batch delete)
+  const clearDemoIssues = async () => {
+    try {
+      const { writeBatch, getDocs } = await import("firebase/firestore");
+      const querySnapshot = await getDocs(collection(db, "issues"));
+      const batch = writeBatch(db);
+      let count = 0;
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const id = doc.id;
+        const reporterId = data.reporterId || "";
+        const reporterEmail = data.reporterEmail || "";
+        const isDemo = id.startsWith("seed_") || 
+                       reporterId.startsWith("seed_user") || 
+                       reporterEmail === "saroja.s@bharat-civic.org" || 
+                       reporterEmail === "milind.j@my-neighborhood.net" || 
+                       reporterEmail === "esha.r@eco-action.org";
+        if (isDemo) {
+          batch.delete(doc.ref);
+          count++;
+        }
+      });
+      
+      if (count > 0) {
+        await batch.commit();
+      }
+      console.log(`Firestore successfully deleted ${count} demo issues.`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, "issues/demo");
+    }
+  };
+
   return (
     <FirebaseContext.Provider
       value={{
@@ -500,10 +794,14 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         logout,
         createIssue,
         addCoReporter,
+        removeConfirmation,
         updateIssueStatus,
+        escalateIssue,
         deleteIssue,
         updateProfilePhoto,
+        updateUserProfile,
         clearAllIssues,
+        clearDemoIssues,
         activeDatabase,
         cachedAccessToken,
         notifications,
@@ -511,6 +809,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         clearAllNotifications,
         adminReadIssues,
         markAdminIssuesAsRead,
+        markAdminIssueAsRead,
         setIssues,
       }}
     >

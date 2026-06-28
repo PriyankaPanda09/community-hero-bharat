@@ -33,7 +33,11 @@
           "properties": {
             "address": { "type": "string" },
             "lat": { "type": "number" },
-            "lng": { "type": "number" }
+            "lng": { "type": "number" },
+            "state": { "type": "string" },
+            "city": { "type": "string" },
+            "streetAddress": { "type": "string" },
+            "zipCode": { "type": "string" }
           },
           "required": ["address"]
         },

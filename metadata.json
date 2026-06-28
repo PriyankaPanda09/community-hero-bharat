@@ -1,6 +1,6 @@
 {
   "name": "Community Hero",
   "description": "A full-stack civic reporting and tracking application for local issues like potholes, streetlights, and garbage.",
-  "requestFramePermissions": ["geolocation"],
+  "requestFramePermissions": ["geolocation", "camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

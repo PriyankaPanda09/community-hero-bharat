@@ -6,6 +6,10 @@ export interface LocationData {
   address: string;
   lat?: number;
   lng?: number;
+  state?: string;
+  city?: string;
+  streetAddress?: string;
+  zipCode?: string;
 }
 
 export interface CivicUser {
@@ -37,7 +41,18 @@ export interface CivicIssue {
     photoURL?: string;
     timestamp: string;
   }[];
+  confirmationPhotos?: {
+    url: string;
+    reporterId: string;
+    reporterName: string;
+    reporterPhoto?: string;
+    note?: string;
+    timestamp: string;
+  }[];
   confirmationCount?: number;
+  isEscalated?: boolean;
+  escalatedAt?: string;
+  complaintLetter?: string;
   timeline?: {
     reportedAt?: string;
     inProgressAt?: string;
@@ -63,3 +78,15 @@ export interface InAppNotification {
   issueId: string;
   status: IssueStatus;
 }
+
+export const isDemoIssue = (issue: CivicIssue): boolean => {
+  if (!issue) return false;
+  return (
+    issue.id.startsWith("seed_") ||
+    issue.reporterId.startsWith("seed_user") ||
+    issue.reporterEmail === "saroja.s@bharat-civic.org" ||
+    issue.reporterEmail === "milind.j@my-neighborhood.net" ||
+    issue.reporterEmail === "esha.r@eco-action.org"
+  );
+};
+

@@ -55,6 +55,181 @@ function saveIssues(issues: any[]) {
   }
 }
 
+// Robust JSON parsing utility to clean up any markdown wrappers or trailing texts from LLM outputs
+function parseRobustJSON(text: string): any {
+  let clean = text.trim();
+  
+  // Try direct parse first
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    // Ignore and try cleaning
+  }
+
+  // Remove markdown block if present (both at start and end)
+  if (clean.startsWith("```")) {
+    clean = clean.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  }
+
+  // Try parsing cleaned text
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    // Ignore and try deep extract
+  }
+
+  // Deep extract: find first '{' or '[' and corresponding or last '}' or ']'
+  const firstBrace = clean.indexOf("{");
+  const firstBracket = clean.indexOf("[");
+  
+  let start = -1;
+  let end = -1;
+  
+  if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+    start = firstBrace;
+    end = clean.lastIndexOf("}");
+  } else if (firstBracket !== -1) {
+    start = firstBracket;
+    end = clean.lastIndexOf("]");
+  }
+
+  if (start !== -1 && end !== -1 && end > start) {
+    const jsonCandidate = clean.substring(start, end + 1);
+    try {
+      return JSON.parse(jsonCandidate);
+    } catch (e) {
+      console.error("Deep extract failed to parse JSON:", e);
+    }
+  }
+
+  throw new Error("Unable to parse valid JSON from model response.");
+}
+
+// 0.5. Check Realism of Photo with Gemini API
+app.post("/api/check-realism", async (req, res) => {
+  try {
+    const { image, mimeType } = req.body;
+
+    if (!image || !mimeType) {
+      return res.status(400).json({ error: "Image and mimeType are required." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY environment variable is not defined. Bypassing realism check.");
+      return res.json({
+        isRealPhoto: true,
+        reasoning: "AI realism check bypassed due to missing API key."
+      });
+    }
+
+    // Standardize base64 string (remove prefix if present)
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const prompt = `You are a strict and highly accurate visual quality auditor for a civic reporting app.
+Examine this image carefully. You must determine if it is a real, actual photograph of a physical location (such as a real street, road, building, trash pile, light pole, pipe, etc.) captured with a camera, or if it is some other form of non-photographic content.
+
+Identify as NOT a real photograph (isRealPhoto = false) if it is:
+- A cartoon, anime, or manga style illustration
+- A sketch, painting, drawing, or digital illustration
+- Clip art, icons, or logos
+- A stock vector graphic, chart, or design layout
+- A computer-generated 3D model, CAD rendering, or video game screenshot
+- Text-heavy images, flyers, posters, or digital screenshots of text/websites
+- Any other non-photographic representation.
+
+Real photographs of real-world scenes must pass this check (isRealPhoto = true).
+
+You must reply with a valid JSON object matching this schema:
+{
+  "isRealPhoto": boolean,
+  "reasoning": "A short explanation of your judgment (1-2 sentences)."
+}
+
+Do not include any explanation, markdown block formatting, or extra text. Return ONLY the JSON object itself.`;
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.5-flash",
+      "gemini-flash-latest",
+      "gemini-3.1-flash-lite"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting realism check with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  inlineData: {
+                    data: base64Data,
+                    mimeType: mimeType,
+                  },
+                },
+                {
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                isRealPhoto: {
+                  type: Type.BOOLEAN,
+                  description: "True if the image is a real photograph of a physical location, false if it is a cartoon, illustration, clip art, stock graphic, AI-generated/rendered image, screenshot, or non-photographic content."
+                },
+                reasoning: {
+                  type: Type.STRING,
+                  description: "A short, clear explanation of why the image was judged as a real photograph or not."
+                }
+              },
+              required: ["isRealPhoto", "reasoning"]
+            }
+          },
+        });
+        if (response && response.text) {
+          console.log(`Successfully checked realism using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} realism check failed with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed the realism check.");
+    }
+
+    const responseText = response.text.trim();
+    const parsed = parseRobustJSON(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error checking image realism:", error);
+    return res.json({
+      isRealPhoto: true,
+      reasoning: "Failed to verify realism due to service demand. Proceeding by default."
+    });
+  }
+});
+
 // 1. Analyze Photo with Gemini API
 app.post("/api/analyze", async (req, res) => {
   try {
@@ -112,9 +287,9 @@ Do not include any explanation, markdown block formatting, or extra text. Return
 
     let response;
     const modelsToTry = [
-      "gemini-3.5-flash",
       "gemini-3.1-flash-lite",
-      "gemini-2.5-flash"
+      "gemini-flash-latest",
+      "gemini-3.5-flash"
     ];
     let lastError: any = null;
 
@@ -162,7 +337,7 @@ Do not include any explanation, markdown block formatting, or extra text. Return
       throw new Error("Empty response from Gemini API");
     }
 
-    const parsed = JSON.parse(responseText.trim());
+    const parsed = parseRobustJSON(responseText);
     return res.json(parsed);
   } catch (error: any) {
     console.error("Error analyzing image with Gemini API:", error);
@@ -186,6 +361,20 @@ app.post("/api/check-duplicate", async (req, res) => {
 
     if (!category || !newDescription || !existingDescription) {
       return res.status(400).json({ error: "Missing required fields." });
+    }
+
+    // Case-insensitive text-based matching (converting both sides to lowercase before comparison)
+    const cleanNewDesc = newDescription.trim().toLowerCase();
+    const cleanExistingDesc = existingDescription.trim().toLowerCase();
+
+    if (cleanNewDesc === cleanExistingDesc || 
+        (cleanNewDesc.includes(cleanExistingDesc) && cleanExistingDesc.length > 5) || 
+        (cleanExistingDesc.includes(cleanNewDesc) && cleanNewDesc.length > 5)) {
+      return res.json({
+        is_duplicate: true,
+        confidence: "high",
+        reasoning: "The reports contain matching or highly similar descriptions (case-insensitive check), indicating they describe the same civic issue."
+      });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -227,9 +416,9 @@ Reply with a JSON object matching this schema:
 
     let response;
     const modelsToTry = [
-      "gemini-3.5-flash",
       "gemini-3.1-flash-lite",
-      "gemini-2.5-flash"
+      "gemini-flash-latest",
+      "gemini-3.5-flash"
     ];
     let lastError: any = null;
 
@@ -277,7 +466,7 @@ Reply with a JSON object matching this schema:
     }
 
     const responseText = response.text.trim();
-    const parsed = JSON.parse(responseText);
+    const parsed = parseRobustJSON(responseText);
     return res.json(parsed);
   } catch (error: any) {
     console.error("Error in duplicate checking:", error);
@@ -285,6 +474,420 @@ Reply with a JSON object matching this schema:
       is_duplicate: false,
       confidence: "low",
       reasoning: "Duplicate check failed due to server error: " + (error.message || error)
+    });
+  }
+});
+
+// Helper to fetch remote image and convert to base64
+async function fetchImageAsBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
+  try {
+    if (url.startsWith("data:image/")) {
+      const match = url.match(/^data:(image\/\w+);base64,(.+)$/);
+      if (match) {
+        return { mimeType: match[1], data: match[2] };
+      }
+    }
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+      return { mimeType: contentType, data: base64 };
+    }
+  } catch (error) {
+    console.error("Error fetching remote image for verification:", error);
+  }
+  return null;
+}
+
+// 1.25. Verify Confirmation Photo using Gemini API
+app.post("/api/verify-confirmation", async (req, res) => {
+  try {
+    const { existingPhotoUrl, existingDescription, newPhotoBase64, newPhotoMimeType } = req.body;
+
+    if (!existingDescription || !newPhotoBase64 || !newPhotoMimeType) {
+      return res.status(400).json({ error: "Missing required fields: existingDescription, newPhotoBase64, and newPhotoMimeType are required." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. Bypassing verification check.");
+      return res.json({
+        matches: true,
+        confidence: "low",
+        reasoning: "AI photo verification is temporarily disabled."
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    // Standardize base64 string for new confirmation photo
+    const standardizedNewPhoto = newPhotoBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    const parts: any[] = [];
+
+    // If an existing photo exists, try to fetch it and include it
+    let fetchedExistingPhoto: { data: string; mimeType: string } | null = null;
+    if (existingPhotoUrl) {
+      fetchedExistingPhoto = await fetchImageAsBase64(existingPhotoUrl);
+    }
+
+    if (fetchedExistingPhoto) {
+      parts.push({
+        inlineData: {
+          data: fetchedExistingPhoto.data,
+          mimeType: fetchedExistingPhoto.mimeType,
+        },
+      });
+      parts.push({ text: "Above is the ORIGINAL photo reported for this issue.\n" });
+    }
+
+    parts.push({
+      inlineData: {
+        data: standardizedNewPhoto,
+        mimeType: newPhotoMimeType,
+      },
+    });
+    parts.push({ text: "Above is the NEW confirmation proof photo uploaded by another user.\n" });
+
+    const prompt = `You are an expert civic quality assurance auditor. Your job is to analyze the new confirmation proof photo to see if it plausibly matches the existing reported civic issue.
+    
+Existing issue description:
+"${existingDescription}"
+
+Instructions:
+1. Examine the new confirmation proof photo. Does it show the same type of civic issue/problem (e.g. pothole, broken streetlight, garbage, water leak) described in the existing report?
+2. If the original photo is provided (the first image above), compare them to see if they plausibly depict the same location, the same exact physical asset, or the same issue (even if taken from a different angle, under different lighting, or showing slightly different states over time).
+3. If they are consistent, set "matches" to true.
+4. If the new confirmation photo is completely unrelated (e.g. a selfie, a photo of a pet, a random indoor shot, or a completely different category of problem like a water leak when the original issue is garbage), set "matches" to false.
+
+You must respond with a JSON object matching this schema:
+{
+  "matches": boolean,
+  "confidence": "low" | "medium" | "high",
+  "reasoning": "A short explanation of your decision (2-3 sentences max). If it matches, point out what details in the photo correspond to the report. If it doesn't match, explain what the photo actually shows and why it doesn't confirm the report."
+}
+
+Do not include any explanation, markdown block formatting, or extra text. Return ONLY the JSON object itself.`;
+
+    parts.push({ text: prompt });
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.5-flash",
+      "gemini-flash-latest",
+      "gemini-3.1-flash-lite"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting verification with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: { parts },
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                matches: {
+                  type: Type.BOOLEAN,
+                  description: "True if the confirmation photo plausibly shows the same issue or same location/problem."
+                },
+                confidence: {
+                  type: Type.STRING,
+                  enum: ["low", "medium", "high"],
+                  description: "Confidence in the decision."
+                },
+                reasoning: {
+                  type: Type.STRING,
+                  description: "Reasoning for the decision."
+                }
+              },
+              required: ["matches", "confidence", "reasoning"]
+            }
+          }
+        });
+        if (response && response.text) {
+          console.log(`Successfully verified confirmation photo using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed verification with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed the verification check.");
+    }
+
+    const responseText = response.text.trim();
+    const parsed = parseRobustJSON(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in verification check:", error);
+    return res.status(500).json({
+      error: "Verification check failed due to server error: " + (error.message || error)
+    });
+  }
+});
+
+// 1.28. Verify Resolution Photo using Gemini API
+app.post("/api/verify-resolution", async (req, res) => {
+  try {
+    const { category, description, resolvedPhoto, mimeType } = req.body;
+
+    if (!category || !description || !resolvedPhoto || !mimeType) {
+      return res.status(400).json({ error: "Missing required fields: category, description, resolvedPhoto, and mimeType are required." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. Bypassing resolution verification check.");
+      return res.json({
+        matches: true,
+        confidence: "low",
+        reasoning: "AI photo verification is temporarily offline. Bypassing check."
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    // Standardize base64 string
+    const standardizedPhoto = resolvedPhoto.replace(/^data:image\/\w+;base64,/, "");
+
+    const prompt = `You are an expert civic quality assurance auditor. Your job is to analyze a photo uploaded by a city administrator to prove that a previously reported civic issue has been successfully fixed or resolved.
+
+Original Issue Category: ${category}
+Original Issue Description: "${description}"
+
+Instructions:
+1. Examine the uploaded proof-of-resolution photo.
+2. Judge whether this photo plausibly shows that this type of problem has actually been fixed or resolved.
+For example:
+- If category is 'pothole', the photo should show a repaired road, filled potholes, fresh asphalt patch, or a clean street surface with no road damage.
+- If category is 'streetlight', the photo should show a working, shining streetlight (especially at dusk/night) or a maintenance crew finishing repairs on a light pole.
+- If category is 'garbage', the photo should show a completely clean, cleared area, empty dustbins, swept pavements, or the waste having been successfully removed.
+- If category is 'water_leak', the photo should show dry pavement, repaired valves, completed pipe trenches, or dry pipes.
+- If category is 'other', judge whether the photo indicates a logical solution or fix to the issue described in the original description.
+3. If the photo is completely unrelated (e.g., a selfie, a random indoor shot, a pet, a landscape unrelated to city streets, or a photo of an unresolved issue/different problem), set "matches" to false.
+
+You must reply with a valid JSON object matching this schema:
+{
+  "matches": boolean,
+  "confidence": "low" | "medium" | "high",
+  "reasoning": "A concise, polite 1-2 sentence explanation of your decision. If matches is true, explain what in the photo shows a successful fix. If matches is false, explain why the photo is irrelevant or does not show a fix for this specific issue category."
+}
+
+Do not include any explanation, markdown block formatting, or extra text. Return ONLY the JSON object itself.`;
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.5-flash",
+      "gemini-flash-latest",
+      "gemini-3.1-flash-lite"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting resolution verification with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  inlineData: {
+                    data: standardizedPhoto,
+                    mimeType: mimeType,
+                  },
+                },
+                {
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                matches: {
+                  type: Type.BOOLEAN,
+                  description: "True if the photo plausibly shows that this type of problem was actually fixed."
+                },
+                confidence: {
+                  type: Type.STRING,
+                  enum: ["low", "medium", "high"],
+                  description: "Confidence in the decision."
+                },
+                reasoning: {
+                  type: Type.STRING,
+                  description: "Reasoning for the decision."
+                }
+              },
+              required: ["matches", "confidence", "reasoning"]
+            }
+          }
+        });
+        if (response && response.text) {
+          console.log(`Successfully verified resolution photo using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed verification with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed the resolution verification check.");
+    }
+
+    const responseText = response.text.trim();
+    const parsed = parseRobustJSON(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in resolution verification:", error);
+    // On error, let's allow bypassing or handle gracefully so admins are not blocked permanently by API issues
+    return res.json({
+      matches: true,
+      confidence: "low",
+      reasoning: "Resolution verification service is temporarily busy. Proceeding with default approval."
+    });
+  }
+});
+
+// 1.3. Generate Certificate of Civic Contribution using Gemini API
+app.post("/api/certificate/generate", async (req, res) => {
+  try {
+    const { name, totalReports, badge, score } = req.body;
+
+    if (!name || totalReports === undefined || !badge || score === undefined) {
+      return res.status(400).json({ error: "Missing name, totalReports, badge, or score in request body." });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. Using high-quality mock certificate text.");
+      return res.json({
+        title: "Certificate of Civic Contribution",
+        recipient: name,
+        citationText: `In profound appreciation of exemplary civic dedication, this citation is presented to ${name} for reporting ${totalReports} vital community issues. Having attained the distinguished rank of "${badge}" with a civic score of ${score} points, their outstanding vigilance and prompt actions have contributed immensely to the safety, cleanliness, and overall quality of life in their neighborhood, embodying the true spirit of a Community Hero.`,
+        signatureTitle: "Community Hero Guardians Panel",
+        platformBranding: "Community Hero Platform"
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const prompt = `You are the official citation and recognition manager for "Community Hero", a civic engagement and crowd-sourced neighborhood improvement platform in India.
+Generate an official-sounding but non-governmental "Certificate of Civic Contribution" citation text.
+The certificate is for a citizen named: "${name}".
+They have submitted ${totalReports} reports, earned the badge "${badge}", and achieved a civic contribution score of ${score} points.
+The current date is: "${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}".
+
+The citation should be highly inspiring, formal, and structured. It must recognize their selfless vigilance in helping light up streets, reporting garbage piles, fixing potholes, and water leaks.
+It MUST frame the recognition clearly as being from the "Community Hero Platform" and the community of citizens, and NOT from any real government department, municipality, or state/national authority.
+
+Please reply with a valid JSON object.`;
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.5-flash"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting certificate generation with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                title: {
+                  type: Type.STRING,
+                  description: "Certificate title, e.g., Certificate of Civic Contribution or Citizen Excellence Citation"
+                },
+                recipient: {
+                  type: Type.STRING,
+                  description: "Full name of the recipient"
+                },
+                citationText: {
+                  type: Type.STRING,
+                  description: "A formal, high-sounding citation paragraph recognizing their specific reports, score, and badge rank."
+                },
+                signatureTitle: {
+                  type: Type.STRING,
+                  description: "Title of the issuer, e.g., Community Hero Board of Guardians / Chief Mobilizer"
+                },
+                platformBranding: {
+                  type: Type.STRING,
+                  description: "Community Hero Platform tagline"
+                }
+              },
+              required: ["title", "recipient", "citationText", "signatureTitle", "platformBranding"]
+            }
+          },
+        });
+        if (response && response.text) {
+          console.log(`Successfully generated certificate text using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed certificate generation with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed the certificate generation.");
+    }
+
+    const responseText = response.text.trim();
+    const parsed = parseRobustJSON(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error in certificate generation:", error);
+    return res.json({
+      title: "Certificate of Civic Contribution",
+      recipient: req.body.name || "Civic Hero",
+      citationText: `In recognition of dedicated civic service, this citation honors their contribution of ${req.body.totalReports || 0} local reports and badge tier "${req.body.badge || "Observer"}" with a cumulative civic score of ${req.body.score || 0} points, serving as an inspiration for collective neighborhood action.`,
+      signatureTitle: "Community Hero Platform Guardians",
+      platformBranding: "Community Hero - Uniting Neighbors for a Better India"
     });
   }
 });
@@ -485,6 +1088,280 @@ app.get("/api/stats", (req, res) => {
   }
 });
 
+// 7. Get AI-generated predictive insights (Supports both GET and POST)
+const handlePredictiveInsights = async (req: express.Request, res: express.Response) => {
+  try {
+    const issues = (req.method === "POST" && req.body && req.body.issues) ? req.body.issues : getIssues();
+
+    // Group issues by category and summarize for Gemini context
+    const simplifiedIssues = issues.map((i: any) => ({
+      category: i.category,
+      severity: i.severity,
+      status: i.status || "Open",
+      timestamp: i.timestamp,
+      location: i.location?.address || i.location?.district || "Unknown area"
+    }));
+
+    // If there are very few issues, we can construct standard insights directly
+    if (issues.length < 3) {
+      return res.json({
+        insights: [
+          {
+            title: "Analysis Sample Size Low",
+            type: "general",
+            metric: "Awaiting Reports",
+            description: "With fewer than 3 community reports logged, there are currently not enough historical data points to generate meaningful predictive trends. Please report more issues to activate prediction engines.",
+            category: "other"
+          },
+          {
+            title: "Proactive Spot Checking",
+            type: "risk",
+            metric: "Preventative",
+            description: "Early data suggests checking nearby lighting and pavement integrity during the turn of the seasons can prevent sudden streetlight out or road hazard complaints.",
+            category: "streetlight"
+          }
+        ]
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. Using programmatic insights engine.");
+      // Generate nice programmatic fallback insights
+      return res.json({
+        insights: getFallbackInsights(issues)
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const prompt = `You are an expert civic data analyst. Analyze these reported urban and environmental issues for our "Community Hero" platform:
+${JSON.stringify(simplifiedIssues, null, 2)}
+
+Based on this historical and current data, perform a forward-looking predictive analysis and generate 2-3 short, highly-specific insights.
+For example:
+- Identify if any category is trending upward recently (e.g., more potholes or water leaks in the last week/month)
+- Identify which area/district has the highest concentration of unresolved issues and why it is a bottleneck
+- Give an estimated risk likelihood (e.g., high/medium/low) that a given category of unresolved issues will escalate/keep increasing if unaddressed.
+
+Each insight must follow this exact JSON schema:
+{
+  "insights": [
+    {
+      "title": "Short descriptive title (e.g., 'Garbage Accumulation Alert' or 'Water Leak Persistence in Westside')",
+      "type": "trending" | "concentration" | "risk" | "general",
+      "metric": "A short supporting statistic or risk rating, e.g. '85% increase', 'High Risk', '4 open issues', '7-Day Bottleneck'",
+      "description": "A 2-3 sentence forward-looking analysis of patterns, trends, potential consequences if left unaddressed, or recommended actions.",
+      "category": "The main category this is about: 'pothole' | 'streetlight' | 'garbage' | 'water_leak' | 'other'"
+    }
+  ]
+}
+
+Ensure the analysis is realistic and strictly derived from the provided data. Do not make up fake categories.
+Return ONLY a valid JSON object matching the schema. No markdown formatting, no code block backticks (no \`\`\`json), no additional text.`;
+
+    let response;
+    const modelsToTry = [
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.5-flash"
+    ];
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting predictive insights generation with model: ${modelName}...`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+          },
+        });
+        if (response && response.text) {
+          console.log(`Successfully generated predictive insights using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed with error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All Gemini models failed to generate predictive insights.");
+    }
+
+    const responseText = response.text;
+    if (!responseText) {
+      throw new Error("Empty response from Gemini API");
+    }
+
+    const parsed = parseRobustJSON(responseText);
+    return res.json(parsed);
+  } catch (error: any) {
+    console.error("Error generating predictive insights with Gemini API:", error);
+    // Return standard fallback insights so the dashboard never crashes
+    const issues = (req.method === "POST" && req.body && req.body.issues) ? req.body.issues : getIssues();
+    return res.json({
+      insights: getFallbackInsights(issues),
+      error: "Failed to generate AI insights due to service demand. Applied standard fallback insights."
+    });
+  }
+};
+
+app.get("/api/predictive-insights", handlePredictiveInsights);
+app.post("/api/predictive-insights", handlePredictiveInsights);
+
+app.post("/api/generate-complaint-letter", async (req, res) => {
+  try {
+    const { category, description, address, timestamp, confirmationCount, reporterName, id } = req.body;
+
+    const issueDate = new Date(timestamp || Date.now());
+    const now = new Date();
+    const diffTime = Math.max(0, now.getTime() - issueDate.getTime());
+    const daysOpen = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not set. Using local fallback letter generator.");
+      const fallbackLetter = getFallbackEscalatedLetter(category, address, description, id, daysOpen, confirmationCount || 0, reporterName);
+      return res.json({ letter: fallbackLetter });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+
+    const prompt = `You are an AI Civic Advocate for the "Community Hero" (Bharat Civic Hub) platform.
+Your task is to write an official, professional, and URGENT civic grievance complaint letter to local municipal authorities regarding a community-reported issue.
+
+Issue Details:
+- Category of Issue: ${category}
+- Location / Address: ${address}
+- Description of Problem: ${description}
+- Number of Days Open/Unresolved: ${daysOpen} days
+- Confirmation Count (number of other citizens who verified and supported this issue): ${confirmationCount || 0} citizens
+- Reference ID: ${id}
+- Citizen Reporter: ${reporterName || "Concerned Citizen"}
+
+CRITICAL REQUIREMENTS:
+1. The letter must have an URGENT, persistent, and authoritative yet polite tone, clearly indicating that this issue has been officially escalated.
+2. It MUST explicitly mention that the issue is urgent.
+3. It MUST explicitly mention the exact number of days the issue has been open (${daysOpen} days).
+4. It MUST explicitly mention the confirmation count (${confirmationCount || 0} confirmations from other local residents).
+5. It must be structured like a formal official letter addressed to "Respected Authority Officers," or "The Municipal Commissioner," and signed off on behalf of the reporter via the CommunityHero Bharat Civic Hub.
+6. Return only the complete body of the letter. Do not include any extra introduction, markdown annotations, triple backticks, or explanation. Begin directly with "Respected Authority Officers," and end with the citizen's signature/sign-off.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+    });
+
+    const letter = response.text?.trim() || getFallbackEscalatedLetter(category, address, description, id, daysOpen, confirmationCount || 0, reporterName);
+    return res.json({ letter });
+  } catch (error: any) {
+    console.error("Error generating complaint letter with Gemini API:", error);
+    try {
+      const { category, description, address, timestamp, confirmationCount, reporterName, id } = req.body;
+      const issueDate = new Date(timestamp || Date.now());
+      const now = new Date();
+      const diffTime = Math.max(0, now.getTime() - issueDate.getTime());
+      const daysOpen = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      const fallbackLetter = getFallbackEscalatedLetter(category, address, description, id, daysOpen, confirmationCount || 0, reporterName);
+      return res.json({ letter: fallbackLetter, error: error.message });
+    } catch (fallbackError) {
+      return res.status(500).json({ error: "Failed to generate complaint letter" });
+    }
+  }
+});
+
+function getFallbackEscalatedLetter(category: string, address: string, description: string, id: string, daysOpen: number, confirmationCount: number, reporterName: string) {
+  return `Respected Authority Officers,
+
+SUBJECT: URGENT ESCALATION - Civic Grievance regarding ${category} at ${address}
+
+I am writing to formally escalate an urgent civic issue regarding ${category} identified at ${address}, registered under Report Reference ID: ${id}.
+
+This matter is highly URGENT and has remained unresolved for ${daysOpen} days since its initial report. It is a significant public concern that has been officially verified and supported with additional proof/confirmations by ${confirmationCount} other local residents in our community.
+
+Description of Issue:
+${description}
+
+Given the prolonged delay and the active confirmations from multiple citizens, we request immediate intervention to inspect and resolve this issue at the earliest possible convenience.
+
+Regards,
+${reporterName || "Concerned Citizen"}
+(Citizen report escalated via CommunityHero Bharat Civic Hub)`;
+}
+
+// Helper function to build high-quality programmatic fallback insights when Gemini is unavailable
+function getFallbackInsights(issues: any[]) {
+  // Count by category
+  const categories: Record<string, number> = {};
+  const openByCategory: Record<string, number> = {};
+  
+  issues.forEach((i: any) => {
+    categories[i.category] = (categories[i.category] || 0) + 1;
+    if (i.status === "Open" || i.status === "investigating" || i.status === "scheduled") {
+      openByCategory[i.category] = (openByCategory[i.category] || 0) + 1;
+    }
+  });
+
+  // Find top category
+  let topCategory = "pothole";
+  let maxCount = 0;
+  Object.entries(categories).forEach(([cat, count]) => {
+    if (count > maxCount) {
+      maxCount = count;
+      topCategory = cat;
+    }
+  });
+
+  // Find top open category
+  let topOpenCategory = "garbage";
+  let maxOpenCount = 0;
+  Object.entries(openByCategory).forEach(([cat, count]) => {
+    if (count > maxOpenCount) {
+      maxOpenCount = count;
+      topOpenCategory = cat;
+    }
+  });
+
+  const readableCategory = (cat: string) => {
+    return cat.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  return [
+    {
+      title: `${readableCategory(topCategory)} Dominates Active Reports`,
+      type: "concentration",
+      metric: `${maxCount} Reports`,
+      description: `Historical reports show ${readableCategory(topCategory)} remains the most frequently reported issue across neighborhoods. Continuous preventative maintenance is highly recommended to control the growth rate.`,
+      category: topCategory
+    },
+    {
+      title: `Unresolved ${readableCategory(topOpenCategory)} Accumulation Risk`,
+      type: "risk",
+      metric: "Medium Risk",
+      description: `There are currently ${maxOpenCount || 0} unresolved ${readableCategory(topOpenCategory)} issues pending action. Delaying intervention could lead to localized neighborhood hygiene or safety escalations over the coming days.`,
+      category: topOpenCategory
+    }
+  ];
+}
+
 const POTHOLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400">
   <rect width="600" height="400" fill="#1e293b"/>
   <path d="M 0 200 L 600 200" stroke="#475569" stroke-width="120"/>
@@ -579,7 +1456,11 @@ const SEED_ISSUES = [
     location: {
       address: "GN Chetty Road, T. Nagar, Chennai, Tamil Nadu 600017",
       lat: 13.0418,
-      lng: 80.2337
+      lng: 80.2337,
+      streetAddress: "GN Chetty Road, T. Nagar",
+      city: "Chennai",
+      state: "Tamil Nadu",
+      zipCode: "600017"
     },
     status: "In Progress",
     reporterId: "seed_user_1",
@@ -598,7 +1479,11 @@ const SEED_ISSUES = [
     location: {
       address: "Western Express Highway, Malad East, Mumbai, Maharashtra 400097",
       lat: 19.1648,
-      lng: 72.8493
+      lng: 72.8493,
+      streetAddress: "Western Express Highway, Malad East",
+      city: "Mumbai",
+      state: "Maharashtra",
+      zipCode: "400097"
     },
     status: "Open",
     reporterId: "seed_user_2",
@@ -617,7 +1502,11 @@ const SEED_ISSUES = [
     location: {
       address: "Outer Ring Road, HSR Layout, Bengaluru, Karnataka 560102",
       lat: 12.9279,
-      lng: 77.6271
+      lng: 77.6271,
+      streetAddress: "Outer Ring Road, HSR Layout",
+      city: "Bengaluru",
+      state: "Karnataka",
+      zipCode: "560102"
     },
     status: "Open",
     reporterId: "seed_user_3",
@@ -636,7 +1525,11 @@ const SEED_ISSUES = [
     location: {
       address: "Lajpat Nagar III, New Delhi, Delhi 110024",
       lat: 28.5672,
-      lng: 77.2433
+      lng: 77.2433,
+      streetAddress: "Lajpat Nagar III",
+      city: "New Delhi",
+      state: "Delhi",
+      zipCode: "110024"
     },
     status: "Resolved",
     reporterId: "seed_user_2",

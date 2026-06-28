@@ -1,8 +1,10 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import L from "leaflet";
 import { CivicUser, CivicIssue, IssueCategory, IssueSeverity, LocationData, AnalysisResult } from "../types";
-import { Upload, Camera, AlertCircle, CheckCircle2, MapPin, Sparkles, Send, Edit3, RefreshCw, AlertTriangle } from "lucide-react";
+import { Upload, Camera, AlertCircle, CheckCircle2, MapPin, Sparkles, Send, Edit3, RefreshCw, AlertTriangle, X, RotateCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useFirebase } from "../FirebaseContext";
+import { Language, translations } from "../translations";
 
 const POTHOLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400">
   <rect width="600" height="400" fill="#1e293b"/>
@@ -96,7 +98,11 @@ const SAMPLE_PHOTOS = [
     description: "Pothole on Mumbai highway: Large, deep, jagged pothole in the middle of the eastbound lane on Western Express Highway, Malad East. High danger to passing vehicles and two-wheelers, swerving hazards.",
     address: "Western Express Highway, Malad East, Mumbai, Maharashtra 400097",
     lat: 19.1648,
-    lng: 72.8493
+    lng: 72.8493,
+    streetAddress: "Western Express Highway, Malad East",
+    city: "Mumbai",
+    state: "Maharashtra",
+    zipCode: "400097"
   },
   {
     name: "Delhi Streetlight Out",
@@ -106,7 +112,11 @@ const SAMPLE_PHOTOS = [
     description: "Broken streetlight in Delhi colony: The residential street lamp outside Lajpat Nagar III has completely gone dark, rendering the local pavement completely unlit and highly unsafe for walkers in evenings.",
     address: "Lajpat Nagar III, New Delhi, Delhi 110024",
     lat: 28.5672,
-    lng: 77.2433
+    lng: 77.2433,
+    streetAddress: "Lajpat Nagar III",
+    city: "New Delhi",
+    state: "Delhi",
+    zipCode: "110024"
   },
   {
     name: "Bangalore Waste Pile",
@@ -116,7 +126,11 @@ const SAMPLE_PHOTOS = [
     description: "Garbage pile near Bangalore apartment: Loose trash bags, cardboard packaging boxes, and organic waste illegally dumped on the walkway of Outer Ring Road, HSR Layout, near the residential gate.",
     address: "Outer Ring Road, HSR Layout, Bengaluru, Karnataka 560102",
     lat: 12.9279,
-    lng: 77.6271
+    lng: 77.6271,
+    streetAddress: "Outer Ring Road, HSR Layout",
+    city: "Bengaluru",
+    state: "Karnataka",
+    zipCode: "560102"
   },
   {
     name: "Chennai Water Leak",
@@ -126,7 +140,11 @@ const SAMPLE_PHOTOS = [
     description: "Water leakage in Chennai street: Clean water is continuously erupting and bubbling up through the road pavement of GN Chetty Road, T. Nagar. Substantial stream of water pooling near intersections and gutters.",
     address: "GN Chetty Road, T. Nagar, Chennai, Tamil Nadu 600017",
     lat: 13.0418,
-    lng: 80.2337
+    lng: 80.2337,
+    streetAddress: "GN Chetty Road, T. Nagar",
+    city: "Chennai",
+    state: "Tamil Nadu",
+    zipCode: "600017"
   }
 ];
 
@@ -134,9 +152,49 @@ interface ReportIssueFormProps {
   currentUser: CivicUser | null;
   onSuccessSubmit: () => void;
   openLoginModal: () => void;
+  language?: Language;
 }
 
-export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLoginModal }: ReportIssueFormProps) {
+interface NominatimAddress {
+  house_number?: string;
+  road?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  village?: string;
+  town?: string;
+  city?: string;
+  county?: string;
+  state?: string;
+  postcode?: string;
+  country?: string;
+  municipality?: string;
+}
+
+const parseNominatimAddress = (data: any) => {
+  const addr: NominatimAddress = data?.address || {};
+  const stateVal = addr.state || "";
+  const cityVal = addr.city || addr.town || addr.village || addr.municipality || addr.county || addr.suburb || "";
+  const zipVal = addr.postcode || "";
+  
+  const streetParts: string[] = [];
+  if (addr.house_number) streetParts.push(addr.house_number);
+  if (addr.road) streetParts.push(addr.road);
+  if (addr.neighbourhood) streetParts.push(addr.neighbourhood);
+  if (addr.suburb && !cityVal.includes(addr.suburb)) {
+    streetParts.push(addr.suburb);
+  }
+  const streetVal = streetParts.length > 0 ? streetParts.join(", ") : (addr.road || "");
+  
+  return {
+    state: stateVal,
+    city: cityVal,
+    zipCode: zipVal,
+    streetAddress: streetVal
+  };
+};
+
+export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLoginModal, language = "en" }: ReportIssueFormProps) {
+  const t = translations[language];
   const { createIssue, addCoReporter, issues } = useFirebase();
   
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -149,6 +207,10 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
   const [severity, setSeverity] = useState<IssueSeverity>("medium");
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zipCode, setZipCode] = useState("");
   const [lat, setLat] = useState<string>("");
   const [lng, setLng] = useState<string>("");
   const [note, setNote] = useState("");
@@ -204,6 +266,23 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
 
     const closestCandidate = candidateIssues[0].issue;
 
+    // Direct local text-based duplicate comparison (case-insensitive)
+    const cleanNewDesc = newDesc.trim().toLowerCase();
+    const cleanExistingDesc = closestCandidate.description.trim().toLowerCase();
+
+    if (cleanNewDesc === cleanExistingDesc || 
+        (cleanNewDesc.includes(cleanExistingDesc) && cleanExistingDesc.length > 5) || 
+        (cleanExistingDesc.includes(cleanNewDesc) && cleanNewDesc.length > 5)) {
+      return {
+        duplicateIssue: closestCandidate,
+        evaluation: {
+          is_duplicate: true,
+          confidence: "high" as const,
+          reasoning: "An existing report at this location contains a matching or highly similar description (case-insensitive description comparison)."
+        }
+      };
+    }
+
     try {
       const res = await fetch("/api/check-duplicate", {
         method: "POST",
@@ -244,6 +323,179 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Real Camera Live Capture State
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [activeDeviceIndex, setActiveDeviceIndex] = useState<number>(0);
+  const [cameraPermissionError, setCameraPermissionError] = useState<string | null>(null);
+  const [isInitializingCamera, setIsInitializingCamera] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Camera capture methods
+  const openCameraFlow = async () => {
+    setIsInitializingCamera(true);
+    setCameraPermissionError(null);
+    setIsCameraOpen(true);
+
+    try {
+      // 1. Check if mediaDevices is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Web camera APIs are not supported in this browser or environment.");
+      }
+
+      // 2. Get all camera devices to support flipping
+      let devices: MediaDeviceInfo[] = [];
+      try {
+        devices = await navigator.mediaDevices.enumerateDevices();
+      } catch (devErr) {
+        console.warn("Failed to enumerate camera devices:", devErr);
+      }
+      const videoDevices = devices.filter(d => d.kind === "videoinput");
+      setCameraDevices(videoDevices);
+
+      // 3. Request user media stream
+      // We use ideal environment (rear camera on mobile) by default
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setCameraStream(stream);
+      setIsInitializingCamera(false);
+
+      // If we have video devices list, find which device matches our active stream
+      if (videoDevices.length > 0) {
+        const activeTrack = stream.getVideoTracks()[0];
+        if (activeTrack) {
+          const settings = activeTrack.getSettings();
+          const deviceId = settings.deviceId;
+          const matchedIdx = videoDevices.findIndex(d => d.deviceId === deviceId);
+          if (matchedIdx !== -1) {
+            setActiveDeviceIndex(matchedIdx);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("[Camera Access Error] Failed to open live webcam stream:", err);
+      // Generate a detailed friendly error message
+      let errorFriendlyMsg = "Could not access the camera stream.";
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        errorFriendlyMsg = "Camera access denied. Please allow camera permissions in your browser or try again.";
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        errorFriendlyMsg = "No camera hardware detected on this device.";
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        errorFriendlyMsg = "Camera is already in use by another application.";
+      } else if (err.message) {
+        errorFriendlyMsg = err.message;
+      }
+
+      setCameraPermissionError(errorFriendlyMsg);
+      setIsInitializingCamera(false);
+
+      // Fallback: Trigger native input file-capture mechanism immediately so the user can still take a picture
+      console.log("Gracefully falling back to native OS camera capture input...");
+      setIsCameraOpen(false);
+      cameraInputRef.current?.click();
+    }
+  };
+
+  const closeCameraFlow = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+    setCameraStream(null);
+    setIsCameraOpen(false);
+    setIsInitializingCamera(false);
+    setCameraPermissionError(null);
+  };
+
+  const switchCamera = async () => {
+    if (cameraDevices.length <= 1) return;
+    const nextIdx = (activeDeviceIndex + 1) % cameraDevices.length;
+    setActiveDeviceIndex(nextIdx);
+
+    // Stop current stream first
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
+    setCameraStream(null);
+    setIsInitializingCamera(true);
+
+    try {
+      const nextDevice = cameraDevices[nextIdx];
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextDevice.deviceId } },
+        audio: false
+      });
+      setCameraStream(stream);
+      setIsInitializingCamera(false);
+    } catch (err) {
+      console.error("Failed to switch camera device:", err);
+      // Revert or fallback
+      openCameraFlow();
+    }
+  };
+
+  const capturePhotoFromStream = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+
+    try {
+      const canvas = document.createElement("canvas");
+      // Use actual video source dimensions for high quality
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        // Draw the current video frame on the canvas
+        ctx.drawImage(video, 0, 0, width, height);
+        
+        // Compress and save as jpeg base64
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        const base64 = dataUrl.split(",")[1];
+
+        setPhotoPreview(dataUrl);
+        setPhotoMimeType("image/jpeg");
+        setPhotoBase64(base64);
+
+        // Analyze with AI immediately
+        analyzeWithAI(base64, "image/jpeg");
+        
+        // Close camera
+        closeCameraFlow();
+      }
+    } catch (err) {
+      console.error("Failed to capture snapshot from video stream:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isCameraOpen && cameraStream && videoRef.current) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [isCameraOpen, cameraStream]);
+
+  // Clean up stream on unmount
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
 
   const convertPresetToBase64 = async (url: string): Promise<{ base64: string; mime: string }> => {
     if (url.startsWith("data:") && url.includes("image/svg+xml")) {
@@ -432,6 +684,27 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
 
     try {
       const { base64, dataUrl } = await compressImage(file);
+      
+      // Perform realism check via Gemini
+      const checkRealismRes = await fetch("/api/check-realism", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: base64, mimeType: "image/jpeg" })
+      });
+      
+      if (!checkRealismRes.ok) {
+        throw new Error("Realism check failed with status: " + checkRealismRes.status);
+      }
+      
+      const realismData = await checkRealismRes.json();
+      if (realismData && realismData.isRealPhoto === false) {
+        setErrorMsg("This looks like an illustration or graphic, not a real photo. Please upload an actual photo of the issue.");
+        setPhotoPreview(null);
+        setPhotoBase64(null);
+        setIsAnalyzing(false);
+        return;
+      }
+
       setPhotoPreview(dataUrl);
       setPhotoMimeType("image/jpeg");
       setPhotoBase64(base64);
@@ -451,6 +724,10 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
     setSeverity(preset.severity as IssueSeverity);
     setDescription(preset.description);
     setAddress(preset.address);
+    setStreetAddress(preset.streetAddress || "");
+    setCity(preset.city || "");
+    setState(preset.state || "");
+    setZipCode(preset.zipCode || "");
     setLat(preset.lat.toString());
     setLng(preset.lng.toString());
     setIsApproximate(true);
@@ -482,6 +759,27 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
       setAiError(null);
       try {
         const { base64, dataUrl } = await compressImage(file);
+
+        // Perform realism check via Gemini
+        const checkRealismRes = await fetch("/api/check-realism", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64, mimeType: "image/jpeg" })
+        });
+        
+        if (!checkRealismRes.ok) {
+          throw new Error("Realism check failed with status: " + checkRealismRes.status);
+        }
+        
+        const realismData = await checkRealismRes.json();
+        if (realismData && realismData.isRealPhoto === false) {
+          setErrorMsg("This looks like an illustration or graphic, not a real photo. Please upload an actual photo of the issue.");
+          setPhotoPreview(null);
+          setPhotoBase64(null);
+          setIsAnalyzing(false);
+          return;
+        }
+
         setPhotoPreview(dataUrl);
         setPhotoMimeType("image/jpeg");
         setPhotoBase64(base64);
@@ -522,15 +820,32 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
             const data = await res.json();
             if (data && data.display_name) {
               setAddress(data.display_name);
+              const parsed = parseNominatimAddress(data);
+              setStreetAddress(parsed.streetAddress);
+              setCity(parsed.city);
+              setState(parsed.state);
+              setZipCode(parsed.zipCode);
             } else {
               setAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+              setStreetAddress("");
+              setCity("");
+              setState("");
+              setZipCode("");
             }
           } else {
             setAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            setStreetAddress("");
+            setCity("");
+            setState("");
+            setZipCode("");
           }
         } catch (err) {
           console.error("Reverse geocoding error:", err);
           setAddress(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+          setStreetAddress("");
+          setCity("");
+          setState("");
+          setZipCode("");
         } finally {
           setIsApproximate(true);
           setIsLocating(false);
@@ -569,8 +884,23 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
       return;
     }
 
-    if (!address.trim()) {
-      setErrorMsg("Please supply an address or area.");
+    if (!streetAddress.trim()) {
+      setErrorMsg("Please enter the street address.");
+      return;
+    }
+
+    if (!city.trim()) {
+      setErrorMsg("Please enter the city.");
+      return;
+    }
+
+    if (!state.trim()) {
+      setErrorMsg("Please enter the state.");
+      return;
+    }
+
+    if (!zipCode.trim()) {
+      setErrorMsg("Please enter the ZIP/PIN code.");
       return;
     }
 
@@ -612,6 +942,8 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
       setUploadProgress(60);
       await delay(500);
 
+      const combinedAddress = `${streetAddress.trim()}, ${city.trim()}, ${state.trim()} ${zipCode.trim()}`;
+
       // Step 3: Firestore saved (100%)
       await createIssue({
         photoUrl: photoPreview, // Store the compressed base64 string directly in Firestore
@@ -619,9 +951,13 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
         severity,
         description,
         location: {
-          address,
+          address: combinedAddress,
           lat: parsedLat,
           lng: parsedLng,
+          streetAddress: streetAddress.trim(),
+          city: city.trim(),
+          state: state.trim(),
+          zipCode: zipCode.trim(),
         },
         status: "Open",
         reporterId: currentUser.uid,
@@ -640,6 +976,10 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
       setPhotoBase64(null);
       setDescription("");
       setAddress("");
+      setStreetAddress("");
+      setCity("");
+      setState("");
+      setZipCode("");
       setLat("");
       setLng("");
       setNote("");
@@ -663,6 +1003,14 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
     setIsSubmitting(true);
     setErrorMsg(null);
     try {
+      const issue = duplicateMatch.issue;
+      const isAlreadyReporter = currentUser.uid === issue.reporterId || currentUser.email === issue.reporterEmail;
+      const isAlreadyCoReporter = issue.coReporters?.some((c) => c.uid === currentUser.uid || c.email === currentUser.email);
+
+      if (isAlreadyReporter || isAlreadyCoReporter) {
+        throw new Error("You have already reported or confirmed this civic issue. A user can only contribute one confirmation or report per issue.");
+      }
+
       await addCoReporter(duplicateMatch.issue.id, {
         uid: currentUser.uid,
         displayName: currentUser.displayName,
@@ -819,8 +1167,27 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
               </div>
             </div>
 
-            {/* Actions Block */}
+             {/* Actions Block */}
             <div className="pt-4 border-t border-border-card/30 space-y-3">
+              {currentUser && duplicateMatch && (
+                (() => {
+                  const alreadyContributed = 
+                    duplicateMatch.issue.reporterId === currentUser.uid ||
+                    duplicateMatch.issue.reporterEmail === currentUser.email ||
+                    duplicateMatch.issue.coReporters?.some(c => c.uid === currentUser.uid || c.email === currentUser.email);
+
+                  return alreadyContributed ? (
+                    <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 font-semibold flex items-start gap-2.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-extrabold">You have already contributed to this report!</p>
+                        <p className="opacity-80 font-medium mt-0.5">You are registered as either the original reporter or a co-reporter. A single citizen can only contribute once per issue.</p>
+                      </div>
+                    </div>
+                  ) : null;
+                })()
+              )}
+
               {errorMsg && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500 font-semibold">
                   {errorMsg}
@@ -830,8 +1197,12 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
               <button
                 type="button"
                 onClick={handleConfirmSameIssue}
-                disabled={isSubmitting}
-                className="w-full bg-accent-teal hover:bg-accent-teal-hover text-white font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-98 cursor-pointer disabled:opacity-50"
+                disabled={isSubmitting || !!(currentUser && duplicateMatch && (
+                  duplicateMatch.issue.reporterId === currentUser.uid ||
+                  duplicateMatch.issue.reporterEmail === currentUser.email ||
+                  duplicateMatch.issue.coReporters?.some(c => c.uid === currentUser.uid || c.email === currentUser.email)
+                ))}
+                className="w-full bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent font-bold py-3 px-4 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:scale-98 cursor-pointer disabled:opacity-50 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-700/50 disabled:cursor-not-allowed disabled:transform-none"
                 id="confirm-duplicate-button"
               >
                 {isSubmitting ? (
@@ -839,7 +1210,13 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
                 ) : (
                   <CheckCircle2 className="w-4 h-4" />
                 )}
-                <span>Confirm it's the same issue</span>
+                <span>
+                  {currentUser && duplicateMatch && (
+                    duplicateMatch.issue.reporterId === currentUser.uid ||
+                    duplicateMatch.issue.reporterEmail === currentUser.email ||
+                    duplicateMatch.issue.coReporters?.some(c => c.uid === currentUser.uid || c.email === currentUser.email)
+                  ) ? "Already Confirmed by You" : "Confirm it's the same issue"}
+                </span>
               </button>
 
               <div className="text-center">
@@ -859,56 +1236,37 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
       ) : (
         <div className="bg-bg-card border border-border-card rounded-3xl p-6 sm:p-8 card-shadow-glow">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-accent-teal/10 text-accent-teal border border-accent-teal/20 flex items-center justify-center font-bold">
-            <Camera className="w-5.5 h-5.5" />
+          <div className="w-10 h-10 rounded-xl bg-accent-teal/10 text-accent-teal border border-accent-teal/20 flex items-center justify-center font-bold relative overflow-hidden shrink-0 shadow-xs">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(var(--accent-teal),0.15),transparent_70%)] animate-pulse" />
+            <Camera className="w-5.5 h-5.5 animate-bounce" style={{ animationDuration: "3s" }} />
           </div>
           <div>
-            <h2 className="text-xl font-display font-extrabold text-text-primary tracking-tight">Report An Anomaly</h2>
-            <p className="text-xs text-text-secondary mt-0.5">Upload a photo to invoke Gemini AI visual categorisation instantly.</p>
+            <h2 className="text-xl font-display font-extrabold text-text-primary tracking-tight flex items-center gap-1.5">
+              <span>{t.reportFormTitle}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-highlight animate-pulse" />
+            </h2>
+            <p className="text-xs text-text-secondary mt-0.5">{t.reportFormSub}</p>
           </div>
         </div>
 
-        {/* Preset Selection Deck */}
-        <div className="mb-6 bg-bg-card/45 border border-border-card rounded-2xl p-4">
-          <p className="text-xs font-bold text-text-secondary mb-3 uppercase tracking-wider flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-accent-teal animate-pulse" />
-            Test With Bharat Presets
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            {SAMPLE_PHOTOS.map((sample, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => selectPresetPhoto(sample)}
-                className="group relative h-16 rounded-xl overflow-hidden border border-border-card/80 hover:border-accent-teal text-left transition-all cursor-pointer focus:outline-none transform hover:scale-102"
-              >
-                <img
-                  src={sample.url}
-                  alt={sample.name}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-slate-950/50 group-hover:bg-slate-950/25 transition-colors flex items-end p-2">
-                  <span className="text-[10px] text-white font-extrabold leading-none truncate w-full">
-                    {sample.name}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
+
 
         {/* Upload Drop Zone */}
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`relative h-60 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition-all cursor-pointer ${
+          onClick={() => {
+            if (photoPreview) {
+              fileInputRef.current?.click();
+            }
+          }}
+          className={`relative h-64 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition-all ${
             dragOver
               ? "border-accent-teal bg-accent-teal/10"
               : photoPreview
-              ? "border-border-card bg-bg-card/20"
-              : "border-border-card hover:border-accent-teal bg-bg-card/30"
+              ? "border-border-card bg-bg-card/20 cursor-pointer"
+              : "border-border-card bg-bg-card/30"
           }`}
           id="photo-upload-zone"
         >
@@ -920,25 +1278,85 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
             className="hidden"
             id="photo-upload-input"
           />
+          <input
+            type="file"
+            ref={cameraInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            id="photo-camera-input"
+          />
 
           {photoPreview ? (
             <div className="absolute inset-0 w-full h-full rounded-2xl overflow-hidden group">
               <img src={photoPreview} alt="Preview" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
                 <p className="text-xs text-white font-bold flex items-center gap-1.5">
                   <RefreshCw className="w-4 h-4 animate-spin-slow" /> Replace Media
                 </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCameraFlow();
+                    }}
+                    className="px-3 py-1.5 bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent text-[11px] font-bold rounded-lg shadow-md transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    Camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                    className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-[11px] font-bold rounded-lg shadow-md transition-all flex items-center gap-1 cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Gallery
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-full bg-accent-teal/10 text-accent-teal border border-accent-teal/15 flex items-center justify-center mx-auto shadow-sm">
-                <Upload className="w-5.5 h-5.5" />
+            <div className="space-y-4 w-full max-w-md">
+              <div className="space-y-2">
+                <p className="text-xs sm:text-sm font-bold text-text-primary">Provide a photo of the civic issue</p>
+                <p className="text-[10px] text-text-muted font-semibold">Drag and drop file here, or select an option below:</p>
               </div>
-              <div>
-                <p className="text-xs sm:text-sm font-bold text-text-primary">Drag & drop photo, or browse file</p>
-                <p className="text-[10px] text-text-muted mt-1 font-semibold">Supports JPEG, PNG, or HEIC formats</p>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                {/* Take Photo Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openCameraFlow();
+                  }}
+                  className="w-full sm:w-auto px-5 py-3 bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition-all transform hover:scale-102 active:scale-98 cursor-pointer border border-accent-teal/15"
+                >
+                  <Camera className="w-4 h-4 text-white" />
+                  <span>Take Photo</span>
+                </button>
+
+                {/* Choose from Gallery Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  className="w-full sm:w-auto px-5 py-3 bg-bg-card hover:bg-bg-card/85 text-text-primary font-bold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 transition-all transform hover:scale-102 active:scale-98 cursor-pointer border border-border-card"
+                >
+                  <Upload className="w-4 h-4 text-accent-teal" />
+                  <span>Choose from Gallery</span>
+                </button>
               </div>
+
+              <p className="text-[9px] text-text-muted font-semibold">Supports JPEG, PNG, or HEIC formats</p>
             </div>
           )}
 
@@ -1063,42 +1481,82 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
               <label className="block text-[10px] font-black text-text-muted uppercase tracking-wider">
                 Geospatial Location
               </label>
-              <button
-                type="button"
-                disabled={isLocating}
-                onClick={handleUseMyLocation}
-                className="text-[10px] font-bold text-accent-teal hover:text-accent-teal-hover disabled:text-text-muted disabled:bg-slate-500/10 disabled:border-border-card transition-colors flex items-center gap-1 cursor-pointer bg-accent-teal/10 border border-accent-teal/20 px-2.5 py-1 rounded-lg"
-                id="use-location-button"
-              >
-                {isLocating ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Locating...
-                  </>
-                ) : (
-                  <>
-                    <MapPin className="w-3.5 h-3.5" /> Use my location
-                  </>
-                )}
-              </button>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] font-bold text-text-secondary mb-1">Area / Street Address</label>
+                <label className="block text-[10px] font-bold text-text-secondary mb-1">Street Address</label>
                 <input
                   type="text"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  value={streetAddress}
+                  onChange={(e) => setStreetAddress(e.target.value)}
                   placeholder="e.g. 42 Oakwood St"
                   className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
-                  id="address-input"
+                  id="street-address-input"
                 />
-                {address && isApproximate && (
-                  <p className="text-[10px] text-amber-500 font-bold mt-1.5 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" /> Approximate location — please confirm or edit
-                  </p>
-                )}
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-text-secondary mb-1">City</label>
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="e.g. New Delhi"
+                    className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
+                    id="city-input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-text-secondary mb-1">State</label>
+                  <input
+                    type="text"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    placeholder="e.g. Delhi"
+                    className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
+                    id="state-input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-text-secondary mb-1">ZIP / PIN Code</label>
+                  <input
+                    type="text"
+                    value={zipCode}
+                    onChange={(e) => setZipCode(e.target.value)}
+                    placeholder="e.g. 110024"
+                    className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
+                    id="zipcode-input"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-1">
+                <button
+                  type="button"
+                  disabled={isLocating}
+                  onClick={handleUseMyLocation}
+                  className="w-full text-xs font-bold text-accent-teal hover:text-accent-teal-hover bg-accent-teal/10 hover:bg-accent-teal/15 border border-accent-teal/20 px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  id="use-current-location-button"
+                >
+                  {isLocating ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Locating...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-3.5 h-3.5" /> Use my current location
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {streetAddress && isApproximate && (
+                <p className="text-[10px] text-amber-500 font-bold mt-1.5 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500" /> Approximate location — please confirm or edit
+                </p>
+              )}
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1175,7 +1633,7 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
               <button
                 type="submit"
                 disabled={isSubmitting || !photoPreview}
-                className={`w-full text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer transform hover:-translate-y-0.5 active:scale-98 ${
+                className={`w-full text-text-on-accent font-bold py-3 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer transform hover:-translate-y-0.5 active:scale-98 ${
                   !photoPreview
                     ? "bg-slate-500/20 text-text-muted cursor-not-allowed border border-border-card"
                     : isSubmitting
@@ -1208,7 +1666,7 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
                 <button
                   type="button"
                   onClick={openLoginModal}
-                  className="inline-flex items-center gap-2 bg-accent-teal hover:bg-accent-teal-hover text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:scale-98"
+                  className="inline-flex items-center gap-2 bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent font-bold text-xs px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 active:scale-98"
                   id="unauth-login-trigger"
                 >
                   <Camera className="w-4.5 h-4.5" />
@@ -1220,6 +1678,124 @@ export default function ReportIssueForm({ currentUser, onSuccessSubmit, openLogi
         </form>
       </div>
       )}
+
+      {/* Live Webcam/Camera Capture Modal */}
+      <AnimatePresence>
+        {isCameraOpen && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="w-full max-w-lg bg-[#11141c] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+              id="citizen-camera-modal"
+            >
+              {/* Modal Header */}
+              <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between bg-[#151922]">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                  <span className="font-display font-black text-xs uppercase tracking-wider text-white">
+                    Citizen Camera Stream
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeCameraFlow}
+                  className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
+                  aria-label="Close camera"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Viewport Box */}
+              <div className="relative aspect-video sm:aspect-[4/3] bg-black flex items-center justify-center overflow-hidden border-b border-white/5">
+                {isInitializingCamera && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0d0f14] z-10 text-white">
+                    <div className="w-10 h-10 rounded-full border-4 border-accent-teal border-t-transparent animate-spin" />
+                    <p className="text-xs font-bold text-white/80 animate-pulse">Initializing citizen camera feed...</p>
+                  </div>
+                )}
+
+                {cameraPermissionError ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center gap-4 bg-[#0d0f14] z-10">
+                    <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500">
+                      <AlertCircle className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h5 className="text-sm font-black text-white uppercase tracking-wider">Camera Access Denied</h5>
+                      <p className="text-xs text-white/60 mt-1 max-w-sm leading-relaxed">{cameraPermissionError}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeCameraFlow();
+                        cameraInputRef.current?.click();
+                      }}
+                      className="px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10 rounded-xl text-white text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Use System File Upload
+                    </button>
+                  </div>
+                ) : (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                    style={{ transform: activeDeviceIndex === 0 && cameraDevices.length > 1 ? "scale-x(-1)" : "none" }}
+                  />
+                )}
+              </div>
+
+              {/* Modal Controls Footer */}
+              <div className="p-6 bg-[#0f121a] flex items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={closeCameraFlow}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 rounded-xl text-white/80 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                {/* Shutter Button */}
+                <button
+                  type="button"
+                  onClick={capturePhotoFromStream}
+                  disabled={isInitializingCamera || !!cameraPermissionError}
+                  className={`w-16 h-16 rounded-full border-4 border-white flex items-center justify-center transition-all cursor-pointer ${
+                    isInitializingCamera || !!cameraPermissionError
+                      ? "opacity-40 cursor-not-allowed bg-white/20"
+                      : "bg-white hover:bg-white/90 active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.25)]"
+                  }`}
+                  aria-label="Capture photo"
+                >
+                  <div className="w-12 h-12 rounded-full border border-slate-900 bg-transparent flex items-center justify-center">
+                    <Camera className="w-6 h-6 text-slate-900" />
+                  </div>
+                </button>
+
+                {/* Camera Toggle Button */}
+                {cameraDevices.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={switchCamera}
+                    className="p-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-white hover:text-white rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                    title="Switch camera device"
+                  >
+                    <RotateCw className="w-4 h-4 animate-spin-slow" />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Flip</span>
+                  </button>
+                ) : (
+                  <div className="w-[70px]" /> /* spacer */
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

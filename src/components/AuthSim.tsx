@@ -1,10 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { CivicUser } from "../types";
 import { 
   LogIn, 
   Shield, 
   X, 
-  Camera, 
   Mail, 
   Lock, 
   User, 
@@ -12,7 +11,9 @@ import {
   Info, 
   ArrowLeft, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useFirebase } from "../FirebaseContext";
@@ -20,7 +21,8 @@ import {
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   sendPasswordResetEmail, 
-  updateProfile 
+  updateProfile,
+  fetchSignInMethodsForEmail
 } from "firebase/auth";
 import { auth, db } from "../firebase";
 import { doc, setDoc } from "firebase/firestore";
@@ -29,15 +31,14 @@ interface AuthSimProps {
   onLogin: (user: CivicUser) => void;
   currentUser: CivicUser | null;
   onLogout: () => void;
+  onNavigateToProfile?: () => void;
 }
 
 type AuthMode = "signin" | "register" | "forgot_password";
 
-export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps) {
-  const { loginWithGoogle, updateProfilePhoto } = useFirebase();
+export default function AuthSim({ onLogin, currentUser, onLogout, onNavigateToProfile }: AuthSimProps) {
+  const { loginWithGoogle } = useFirebase();
   const [showModal, setShowModal] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   
   // Auth Form states
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -48,6 +49,22 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [authFeedback, setAuthFeedback] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isGoogleOnlyUser, setIsGoogleOnlyUser] = useState(false);
+
+  // Clear all typed but unsaved fields, passwords, and errors when currentUser changes or modal toggles
+  useEffect(() => {
+    setEmail("");
+    setPassword("");
+    setConfirmPassword("");
+    setName("");
+    setError("");
+    setAuthFeedback("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setMode("signin");
+  }, [currentUser?.email, showModal]);
 
   // Helper to map Firebase Auth error codes to friendly messages
   const getReadableAuthError = (err: any): string => {
@@ -82,7 +99,7 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
       if (onLogin) onLogin(user);
       setShowModal(false);
     } catch (err: any) {
-      console.error(err);
+      console.warn("Google login error:", err);
       setError(getReadableAuthError(err));
     }
   };
@@ -91,6 +108,7 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
     e.preventDefault();
     setError("");
     setAuthFeedback("");
+    setIsGoogleOnlyUser(false);
 
     // Simple validations
     if (!email) {
@@ -108,17 +126,40 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
           return;
         }
 
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const fbUser = userCredential.user;
-        const civicUser: CivicUser = {
-          uid: fbUser.uid,
-          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "Citizen Hero",
-          email: fbUser.email || "",
-          photoURL: fbUser.photoURL || "",
-        };
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          const fbUser = userCredential.user;
+          const civicUser: CivicUser = {
+            uid: fbUser.uid,
+            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "Citizen Hero",
+            email: fbUser.email || "",
+            photoURL: fbUser.photoURL || "",
+          };
 
-        if (onLogin) onLogin(civicUser);
-        setShowModal(false);
+          if (onLogin) onLogin(civicUser);
+          setShowModal(false);
+        } catch (signInErr: any) {
+          console.warn("Manual sign in failed:", signInErr);
+          const errCode = signInErr?.code || "";
+
+          // Check if this user originally signed up via Google only
+          let isGoogleOnly = false;
+          try {
+            const methods = await fetchSignInMethodsForEmail(auth, email);
+            if (methods.includes("google.com") && !methods.includes("password")) {
+              isGoogleOnly = true;
+            }
+          } catch (fetchErr) {
+            console.warn("Could not fetch sign in methods:", fetchErr);
+          }
+
+          if (isGoogleOnly) {
+            setIsGoogleOnlyUser(true);
+            setError("This account uses Google Sign-In. Please use the Google button below, or sign in once with Google and set a password from Settings.");
+          } else {
+            setError(getReadableAuthError(signInErr));
+          }
+        }
 
       } else if (mode === "register") {
         if (!name.trim()) {
@@ -175,53 +216,10 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
       }
 
     } catch (err: any) {
-      console.error(err);
+      console.warn("Manual auth flow error:", err);
       setError(getReadableAuthError(err));
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setUploadingPhoto(true);
-      setError("");
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = async () => {
-          const canvas = document.createElement("canvas");
-          const size = 200;
-          canvas.width = size;
-          canvas.height = size;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            setError("Could not create drawing canvas.");
-            setUploadingPhoto(false);
-            return;
-          }
-
-          const minDim = Math.min(img.width, img.height);
-          const sx = (img.width - minDim) / 2;
-          const sy = (img.height - minDim) / 2;
-
-          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
-          const base64Photo = canvas.toDataURL("image/jpeg", 0.85);
-          
-          await updateProfilePhoto(base64Photo);
-          setUploadingPhoto(false);
-        };
-        img.src = event.target?.result as string;
-      };
-      reader.readAsDataURL(file);
-    } catch (err: any) {
-      console.error(err);
-      setError("Failed to compress or save custom profile picture.");
-      setUploadingPhoto(false);
     }
   };
 
@@ -231,137 +229,57 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
     setAuthFeedback("");
     setPassword("");
     setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setIsGoogleOnlyUser(false);
     // keep email filled in for convenience if switching to reset
   };
 
   return (
     <div className="relative inline-block text-left" id="auth-simulator-root">
       {currentUser ? (
-        <div className="relative">
-          <button
-            onClick={() => setProfileMenuOpen(!profileMenuOpen)}
-            className="flex items-center gap-3 bg-white/10 hover:bg-white/15 active:bg-white/20 duration-150 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-md cursor-pointer"
-            id="auth-profile-pill"
-          >
-            {currentUser.photoURL ? (
-              <img
-                src={currentUser.photoURL}
-                alt={currentUser.displayName}
-                className="w-7 h-7 rounded-full border border-white/20 object-cover"
-                referrerPolicy="no-referrer"
-                id="user-profile-avatar"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-accent-highlight text-white flex items-center justify-center font-bold text-xs" id="user-profile-avatar-initials">
-                {currentUser.displayName.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="hidden sm:block text-left">
-              <div className="flex items-center gap-1.5">
-                <p className="text-[11px] text-white font-extrabold leading-none">{currentUser.displayName}</p>
-                {currentUser.email === "priyapanda959@gmail.com" && (
-                  <span className="bg-rose-500 text-white text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wide leading-none" id="admin-badge">
-                    Admin
-                  </span>
-                )}
-              </div>
-              <p className="text-[9px] text-white/70 leading-none mt-1 truncate max-w-[110px]">
-                {currentUser.email}
-              </p>
+        <button
+          onClick={onNavigateToProfile}
+          className="flex items-center gap-3 bg-white/10 hover:bg-white/15 active:bg-white/20 hover:scale-105 duration-150 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-md cursor-pointer transition-all"
+          id="auth-profile-pill"
+          title="Go to Settings"
+        >
+          {currentUser.photoURL ? (
+            <img
+              src={currentUser.photoURL}
+              alt={currentUser.displayName}
+              className="w-7 h-7 rounded-full border border-white/20 object-cover shrink-0"
+              referrerPolicy="no-referrer"
+              id="user-profile-avatar"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-accent-highlight text-text-on-highlight flex items-center justify-center font-bold text-xs shrink-0" id="user-profile-avatar-initials">
+              {currentUser.displayName.charAt(0).toUpperCase()}
             </div>
-          </button>
-
-          <AnimatePresence>
-            {profileMenuOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40 cursor-default" 
-                  onClick={() => setProfileMenuOpen(false)} 
-                />
-                
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                  transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="absolute right-0 mt-2.5 w-64 bg-bg-card border border-border-card text-text-primary rounded-2xl shadow-2xl p-4.5 z-50 space-y-4 backdrop-blur-md"
-                  id="auth-profile-dropdown"
-                >
-                  <div className="flex flex-col items-center text-center pb-3 border-b border-border-card/40">
-                    <div className="relative group mb-2.5">
-                      {currentUser.photoURL ? (
-                        <img
-                          src={currentUser.photoURL}
-                          alt={currentUser.displayName}
-                          className="w-16 h-16 rounded-full border-2 border-accent-teal object-cover shadow-lg"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-16 h-16 rounded-full bg-accent-highlight text-white flex items-center justify-center font-bold text-2xl border-2 border-accent-teal shadow-lg">
-                          {currentUser.displayName.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    <h4 className="text-xs font-black text-text-primary uppercase tracking-wide leading-none flex items-center gap-1.5 justify-center">
-                      <span>{currentUser.displayName}</span>
-                      {currentUser.email === "priyapanda959@gmail.com" && (
-                        <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
-                          Admin
-                        </span>
-                      )}
-                    </h4>
-                    <p className="text-[9px] text-text-muted mt-1 truncate max-w-full font-medium">
-                      {currentUser.email}
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => document.getElementById("profile-photo-input")?.click()}
-                      className="w-full flex items-center justify-center gap-2 bg-accent-teal hover:bg-accent-teal-hover disabled:bg-accent-teal/40 text-white text-[11px] font-extrabold py-2.5 px-3 rounded-xl cursor-pointer transition-all shadow-md transform hover:-translate-y-0.5"
-                      disabled={uploadingPhoto}
-                      id="change-photo-btn"
-                    >
-                      <Camera className="w-3.5 h-3.5 shrink-0" />
-                      <span>{uploadingPhoto ? "Saving Photo..." : "Change Photo"}</span>
-                    </button>
-                    <input
-                      id="profile-photo-input"
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoChange}
-                      className="hidden"
-                    />
-                  </div>
-
-                  {error && (
-                    <p className="text-[10px] text-rose-500 font-bold text-center leading-relaxed">
-                      {error}
-                    </p>
-                  )}
-
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      onLogout();
-                    }}
-                    className="w-full flex items-center justify-center gap-1.5 text-[11px] font-extrabold text-rose-500 hover:text-white hover:bg-rose-500/10 py-2.5 rounded-xl transition-all cursor-pointer border border-rose-500/20"
-                    id="auth-logout-button-dropdown"
-                  >
-                    <span>Sign Out</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
+          )}
+          <div className="hidden sm:flex flex-col text-left min-w-0 max-w-[100px] md:max-w-[140px]" id="navbar-profile-text-block">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-[11px] text-white font-extrabold leading-none truncate flex-1" title={currentUser.displayName}>
+                {currentUser.displayName}
+              </p>
+              {currentUser.email === "priyapanda959@gmail.com" && (
+                <span className="bg-rose-500 text-white text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-wide leading-none shrink-0" id="admin-badge">
+                  Admin
+                </span>
+              )}
+            </div>
+            <p className="text-[9px] text-white/70 leading-none mt-1 truncate" title={currentUser.email}>
+              {currentUser.email}
+            </p>
+          </div>
+        </button>
       ) : (
         <button
           onClick={() => {
             resetFormState("signin");
             setShowModal(true);
           }}
-          className="flex items-center gap-1.5 bg-accent-highlight hover:bg-accent-highlight-hover text-white font-bold text-xs px-4 py-2 rounded-xl transition-all duration-200 shadow-md cursor-pointer transform hover:-translate-y-0.5"
+          className="flex items-center gap-1.5 bg-accent-highlight hover:bg-accent-highlight-hover text-text-on-highlight font-bold text-xs px-4 py-2 rounded-xl transition-all duration-200 shadow-md cursor-pointer transform hover:-translate-y-0.5"
           id="auth-login-button"
         >
           <LogIn className="w-4 h-4" />
@@ -409,7 +327,7 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
                   <span className="block text-[10px] font-black text-text-secondary uppercase tracking-wider">Fast-track Authentication</span>
                   <button
                     onClick={handleGoogleLogin}
-                    className="w-full flex items-center justify-center gap-2.5 bg-accent-teal hover:bg-accent-teal-hover text-white font-extrabold text-xs py-3 rounded-xl transition-all shadow-md cursor-pointer transform hover:-translate-y-0.5 hover:shadow-[0_0_15px_var(--glow)]"
+                    className="w-full flex items-center justify-center gap-2.5 bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent font-extrabold text-xs py-3 rounded-xl transition-all shadow-md cursor-pointer transform hover:-translate-y-0.5 hover:shadow-[0_0_15px_var(--glow)]"
                     id="google-signin-primary-btn"
                   >
                     <LogIn className="w-4.5 h-4.5 shrink-0" />
@@ -473,7 +391,11 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
                         type="email"
                         required
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          setIsGoogleOnlyUser(false);
+                          setError("");
+                        }}
                         placeholder="yourname@gmail.com"
                         className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
                         id="manual-email-input"
@@ -498,15 +420,30 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
                             </button>
                           )}
                         </div>
-                        <input
-                          type="password"
-                          required
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
-                          id="manual-password-input"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-bg-card/50 pl-3.5 pr-10 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
+                            id="manual-password-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors focus:outline-none p-1 cursor-pointer flex items-center justify-center"
+                            title={showPassword ? "Hide password" : "Show password"}
+                            id="toggle-password-visibility-btn"
+                          >
+                            {showPassword ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -516,29 +453,89 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
                           <KeyRound className="w-3.5 h-3.5 text-text-muted" />
                           <span>Confirm Password</span>
                         </label>
-                        <input
-                          type="password"
-                          required
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full bg-bg-card/50 px-3.5 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
-                          id="manual-confirm-password-input"
-                        />
+                        <div className="relative">
+                          <input
+                            type={showConfirmPassword ? "text" : "password"}
+                            required
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-bg-card/50 pl-3.5 pr-10 py-2.5 rounded-xl border border-border-card text-text-primary placeholder-text-muted/50 focus:border-accent-teal outline-none text-xs font-semibold"
+                            id="manual-confirm-password-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors focus:outline-none p-1 cursor-pointer flex items-center justify-center"
+                            title={showConfirmPassword ? "Hide password" : "Show password"}
+                            id="toggle-confirm-password-visibility-btn"
+                          >
+                            {showConfirmPassword ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Feedback messaging */}
-                  {error && (
-                    <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[11px] font-bold p-3 rounded-xl flex items-center gap-2">
+                  {error && !isGoogleOnlyUser && (
+                    <div className="bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[11px] font-bold p-3 rounded-xl flex items-center gap-2" id="signin-generic-error">
                       <AlertCircle className="w-4 h-4 shrink-0" />
                       <span>{error}</span>
                     </div>
                   )}
 
+                  {isGoogleOnlyUser && (
+                    <div className="bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs font-semibold p-4 rounded-xl space-y-3" id="google-only-warning-card">
+                      <div className="flex items-start gap-2.5">
+                        <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold text-amber-300">Google Sign-In Account Detected</p>
+                          <p className="text-[11px] text-text-secondary leading-relaxed font-medium font-semibold">
+                            This account uses Google Sign-In. Please use the Google button below, or sign in once with Google and set a password from Settings.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleGoogleLogin}
+                          className="flex-1 bg-accent-teal hover:bg-accent-teal-hover text-text-on-accent text-[11px] font-extrabold py-2 px-3 rounded-lg cursor-pointer transition-all active:scale-95 text-center flex items-center justify-center gap-1.5"
+                          id="google-only-login-redirect"
+                        >
+                          <LogIn className="w-3.5 h-3.5" />
+                          <span>Use Google Button</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              setSubmitting(true);
+                              setError("");
+                              await sendPasswordResetEmail(auth, email);
+                              setAuthFeedback("A password reset link has been sent! Check your inbox to set a password for email login.");
+                              setIsGoogleOnlyUser(false);
+                            } catch (resetErr: any) {
+                              setError(getReadableAuthError(resetErr));
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          className="flex-1 bg-[#1e2330]/60 hover:bg-[#2a3042]/60 border border-border-card text-white text-[11px] font-extrabold py-2 px-3 rounded-lg cursor-pointer transition-all active:scale-95 text-center"
+                          id="google-only-reset-trigger"
+                        >
+                          Set a Password Now
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {authFeedback && (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[11px] font-bold p-3 rounded-xl flex items-center gap-2">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[11px] font-bold p-3 rounded-xl flex items-center gap-2" id="signin-success-feedback">
                       <CheckCircle2 className="w-4 h-4 shrink-0 animate-bounce" />
                       <span>{authFeedback}</span>
                     </div>
@@ -549,7 +546,7 @@ export default function AuthSim({ onLogin, currentUser, onLogout }: AuthSimProps
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="w-full bg-accent-highlight hover:bg-accent-highlight-hover disabled:bg-accent-highlight/40 text-white font-extrabold text-xs py-3 rounded-xl transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 text-center"
+                      className="w-full bg-accent-highlight hover:bg-accent-highlight-hover disabled:bg-accent-highlight/40 text-text-on-highlight font-extrabold text-xs py-3 rounded-xl transition-all cursor-pointer shadow-md transform hover:-translate-y-0.5 text-center"
                       id="manual-auth-submit-btn"
                     >
                       {submitting ? (
