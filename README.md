@@ -18,7 +18,7 @@ Most civic reporting tools stop at "log the issue." Community Hero goes further:
 
 - **AI-verified reporting** — Gemini checks that an uploaded photo is a real photograph (not a cartoon, illustration, or stock image) before accepting a report, and automatically fills in category, severity, and a clean description.
 - **Duplicate detection with reasoning** — before creating a new report, Gemini compares it against nearby existing reports and decides if it's likely the same real-world issue, with a stated reason for its decision.
-- **Independent verification** — only the *original reporter* (never the admin who resolved it) can mark an issue as truly fixed, and only after seeing AI-checked photo proof. This keeps resolution honest.
+- **Independent verification** — only the _original reporter_ (never the admin who resolved it) can mark an issue as truly fixed, and only after seeing AI-checked photo proof. This keeps resolution honest.
 - **Autonomous civic review agent** — a periodic review scans every open report and flags any that meet strict urgency criteria (5+ confirmations, high severity, open more than 7 days), automatically rewriting that report's official complaint letter with firmer, specific language — without a human asking for it each time.
 - **Auto-drafted complaint letters** — every issue gets a formal letter addressed to the correct civic authority based on category (Roads, Electricity, Sanitation, Water Supply), ready to copy, download, or email.
 
@@ -104,8 +104,17 @@ This app is built and deployed directly from **Google AI Studio Build Mode** to 
 ## Submission links
 
 - **Live app:** https://community-hero-149727530776.us-west1.run.app
-- **GitHub repository:** *(this repo)*
-- **Project description document:** *(link to be added)*
+- **GitHub repository:** _(this repo)_
+- **Project description document:** https://docs.google.com/document/d/1YI9feHVbVOx6Bk-VDD6R_LkeERTxPae_ZYIeTv3OyUY/edit?usp=sharing
+
+## Project Highlights
+
+- AI-powered civic issue categorization using Gemini.
+- Duplicate issue detection with AI reasoning.
+- AI-generated complaint letters for civic authorities.
+- Secure role-based workflow using Firebase Authentication and Firestore Rules.
+- Multilingual support for Indian users.
+- Interactive map visualization and community-driven verification.
 
 ## License
 
